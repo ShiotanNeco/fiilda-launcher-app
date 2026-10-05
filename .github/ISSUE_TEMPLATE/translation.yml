@@ -1,0 +1,38 @@
+name: "Translation / 翻訳"
+description: "English text that reads oddly or is wrong / 英語の表現がおかしい"
+title: "[Translation] "
+labels: ["translation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the English text! Short, simple sentences are best.
+        英語の表現の報告です。
+  - type: textarea
+    id: where
+    attributes:
+      label: "Where is the text? / どこの文字ですか"
+      description: "Screen and widget, e.g. \"Battery widget\" or \"Settings > Theme\""
+    validations:
+      required: true
+  - type: input
+    id: current
+    attributes:
+      label: "Current text / 今の文字"
+    validations:
+      required: true
+  - type: input
+    id: suggestion
+    attributes:
+      label: "Suggested text / こうしてほしい"
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: "Screenshot / スクショ"
+      description: "Drag and drop an image here. / 画像をここにドラッグしてください。"
+  - type: input
+    id: version
+    attributes:
+      label: "App version / アプリのバージョン"
+      description: "Settings > About > Version"
+      placeholder: "02.2"

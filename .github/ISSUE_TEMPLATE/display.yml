@@ -1,0 +1,43 @@
+name: "Display problem / 表示の問題"
+description: "Text cut off, overlapping, or not fitting / 文字が切れる・はみ出す・重なる"
+title: "[Display] "
+labels: ["display"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A screenshot is the most helpful thing here.
+        表示の問題の報告です。スクショがあると助かります。
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: "Screenshot / スクショ"
+      description: "Drag and drop an image here. / 画像をここにドラッグしてください。"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: "What looks wrong? / 何がおかしいですか"
+    validations:
+      required: true
+  - type: dropdown
+    id: theme
+    attributes:
+      label: "Theme / テーマ"
+      options: ["Default", "Classic", "Windows", "Material", "Glass"]
+  - type: dropdown
+    id: screen
+    attributes:
+      label: "Screen / 画面"
+      options: ["Inner screen (unfolded) / 内側画面", "Cover screen (folded) / カバー画面", "Regular phone / 通常のスマホ"]
+  - type: input
+    id: device
+    attributes:
+      label: "Phone model and Android version / 機種とAndroidのバージョン"
+      placeholder: "Galaxy Z Fold7, Android 16"
+  - type: input
+    id: version
+    attributes:
+      label: "App version / アプリのバージョン"
+      placeholder: "02.2"

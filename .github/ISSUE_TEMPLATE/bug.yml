@@ -1,0 +1,38 @@
+name: "Bug / 不具合"
+description: "Something doesn't work or the app stops / 動かない・止まる"
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: "What happened? / 何が起きましたか"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps to reproduce / 起きるまでの操作"
+      placeholder: |
+        1. Long press an app on Home
+        2. Tap "Size"
+        3. ...
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: "Screenshot or video / スクショや動画"
+      description: "Drag and drop here. / ここにドラッグしてください。"
+  - type: input
+    id: device
+    attributes:
+      label: "Phone model and Android version / 機種とAndroidのバージョン"
+      placeholder: "Galaxy Z Fold7, Android 16"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "App version / アプリのバージョン"
+      placeholder: "02.2"
+    validations:
+      required: true
