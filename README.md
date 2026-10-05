@@ -16,6 +16,21 @@ This repository is for **downloading the app**. Get the APK from [Releases](../.
   <img src="docs/07_cover_default.png" width="23%" alt="Home screen on the cover display">
 </p>
 
+## First start
+
+The first time you open FiiLDA, a short tutorial walks you through it — just swipe. You can replay it anytime from **Settings > How to use**.
+A fresh install starts with one page, six widgets, and up to eight of your phone's default apps.
+
+<p>
+  <img src="docs/10_tutorial_welcome.png" width="32%" alt="Tutorial: welcome">
+  <img src="docs/11_tutorial_long_press.png" width="32%" alt="Tutorial: long press to arrange">
+  <img src="docs/12_fresh_home.png" width="32%" alt="Home right after installing">
+</p>
+
+It also works on regular (non-folding) phones:
+
+<img src="docs/13_regular_phone.png" width="30%" alt="FiiLDA on a regular phone">
+
 ## Features
 
 - Home that adapts to the cover screen and the inner screen (portrait and landscape)
@@ -25,6 +40,7 @@ This repository is for **downloading the app**. Get the APK from [Releases](../.
 - Five themes: Default, Classic, Windows, Material, and Glass
 - App list with search, folders, app shortcuts, and notifications on tiles
 - English and Japanese
+- A first-start tutorial
 
 ## Install
 
@@ -75,6 +91,11 @@ Galaxy Z Foldなどの折りたたみ端末向けの、Androidホームアプリ
 
 このリポジトリは**アプリの配布用**です。インストール用のファイル（APK）は [Releases](../../releases) にあります。
 
+## はじめて開いたとき
+
+初めて開くと、スワイプでめくる短いチュートリアルが表示されます。設定の「使い方を見る」から、いつでもまた見られます。
+インストール直後のホームは、1ページ・ウィジェット6個・端末の標準アプリ最大8個から始まります。折りたたみではない普通のスマホでも使えます（上のスクショ参照）。
+
 ## できること
 
 - カバー画面・内側画面（縦／横）に自動で合わせるホーム
@@ -84,6 +105,7 @@ Galaxy Z Foldなどの折りたたみ端末向けの、Androidホームアプリ
 - 5つのテーマ：デフォルト／Classic／窓／マテリアル／ガラス
 - 検索つきのアプリ一覧、フォルダ、アプリのショートカット、通知の表示
 - 日本語と英語に対応
+- 初回のチュートリアル
 
 ## インストール方法
 
