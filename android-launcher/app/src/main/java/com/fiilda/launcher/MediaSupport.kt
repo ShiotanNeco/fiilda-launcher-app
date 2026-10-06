@@ -588,6 +588,8 @@ internal fun activeNotificationSnapshotOf(
     return ActiveNotificationSnapshot(
         metadata = metadata,
         contentIntent = notification.contentIntent,
+        profileUserId = statusBarNotification.user
+            .takeUnless { it == android.os.Process.myUserHandle() }?.hashCode(),
     )
 }
 

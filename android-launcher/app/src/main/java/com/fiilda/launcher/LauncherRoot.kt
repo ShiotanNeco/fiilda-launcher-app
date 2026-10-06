@@ -2147,13 +2147,13 @@ internal fun FiiLDALauncher(
                                     onPhotoMuteChanged = setPhotoVideoMute,
                                     onPhotoPreview = { widgetId -> photoPreviewWidgetId = widgetId },
                                     onOpenApp = { app ->
-                                        selectedPackage = app.packageName
+                                        selectedPackage = app.packageIdentity()
                                         if (launchApp(context, app) != AppLaunchResult.STARTED) {
                                             onAppLaunchFailure()
                                         }
                                     },
                                     onOpenShortcut = { app, shortcut ->
-                                        selectedPackage = app.packageName
+                                        selectedPackage = app.packageIdentity()
                                         launchShortcut(context, app, shortcut)
                                     },
                                     onOpenPinnedShortcut = { shortcut ->
@@ -2358,7 +2358,7 @@ internal fun FiiLDALauncher(
                                     actionAppPresentation = HomeSizePresentation.NARROW
                                 },
                                 onOpenApp = { app ->
-                                    selectedPackage = app.packageName
+                                    selectedPackage = app.packageIdentity()
                                     if (launchApp(context, app) != AppLaunchResult.STARTED) {
                                         onAppLaunchFailure()
                                     }
@@ -2464,7 +2464,7 @@ internal fun FiiLDALauncher(
                             .flatMapTo(mutableSetOf()) { it.memberIds },
                         onOpenApp = { app ->
                             folderExpansionSession = session.copy(isOpen = false)
-                            selectedPackage = app.packageName
+                            selectedPackage = app.packageIdentity()
                             if (launchApp(context, app) != AppLaunchResult.STARTED) {
                                 onAppLaunchFailure()
                             }
@@ -2518,8 +2518,8 @@ internal fun FiiLDALauncher(
             contentMode = appTileContentModeFor(actionAppId, appTileContentModes),
             notificationCount = projectFavoriteNotifications(
                 notifications = notificationState.snapshots,
-                favoritePackages = setOf(app.packageName),
-            )[app.packageName].orEmpty().size,
+                favoritePackages = setOf(app.notificationPackageKey()),
+            )[app.notificationPackageKey()].orEmpty().size,
             notificationAccessGranted = notificationListenerAccessGranted(context),
             canUninstall = canUninstallApp(context, app),
             initialTargetHomePage = actionAppHomePage ?: selectedHomePage,

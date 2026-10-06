@@ -54,7 +54,7 @@ internal sealed interface HomeItem {
     val id: String
 
     data class App(val app: LaunchableApp) : HomeItem {
-        override val id: String = "${app.packageName}/${app.className}"
+        override val id: String = favoriteId(app)
     }
 
     data class Widget(

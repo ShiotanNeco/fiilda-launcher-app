@@ -46,6 +46,7 @@ internal data class NotificationMetadata(
 internal data class ActiveNotificationSnapshot(
     val metadata: NotificationMetadata,
     val contentIntent: PendingIntent? = null,
+    val profileUserId: Int? = null,
 ) {
     /** Alias kept explicit for callers that treat the handle as a generic pending intent. */
     val pendingIntent: PendingIntent?
@@ -71,6 +72,12 @@ internal data class ActiveNotificationSnapshot(
     val isAutoCancel: Boolean
         get() = metadata.isAutoCancel
 }
+
+internal fun notificationPackageKey(packageName: String, profileUserId: Int?): String =
+    if (profileUserId == null) packageName else "$packageName@$profileUserId"
+
+internal fun LaunchableApp.notificationPackageKey(): String =
+    notificationPackageKey(packageName, profile?.user?.hashCode())
 
 /** State exposed to the home surface; all values are process-local and intentionally ephemeral. */
 internal data class ActiveNotificationState(
@@ -186,7 +193,7 @@ internal fun projectFavoriteNotifications(
     val latestByKey = LinkedHashMap<String, ActiveNotificationSnapshot>()
     notifications.forEach { candidate ->
         if (!isProjectableNotification(candidate.metadata) ||
-            candidate.packageName !in favoritePackages
+            notificationPackageKey(candidate.packageName, candidate.profileUserId) !in favoritePackages
         ) return@forEach
         val prior = latestByKey[candidate.key]
         if (prior == null || candidate.timestamp >= prior.timestamp) {
@@ -200,7 +207,7 @@ internal fun projectFavoriteNotifications(
                 .thenBy { it.packageName }
                 .thenBy { it.key },
         )
-        .groupBy { it.packageName }
+        .groupBy { notificationPackageKey(it.packageName, it.profileUserId) }
         .mapValues { (_, records) -> records.toList() }
 }
 

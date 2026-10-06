@@ -8,9 +8,17 @@ bridge. Compose state and interaction callbacks remain owned by `FiiLDALauncher`
 MainActivity publishes two refresh tokens. `lifecycleRefreshToken` advances on every resume and
 on package/shortcut callbacks; it drives cheap rechecks (notification/media access, search
 permissions, shortcut queries). `appCatalogRefreshToken` advances only on package changes and app
-launch failures; it drives the full app catalog query and widget descriptor revalidation. The
+launch failures, profile broadcasts, and a resume-time check that the profile set changed; it drives the full app catalog query and widget descriptor revalidation. The
 LauncherApps callback stays registered for the Activity lifetime so changes made while the
 launcher is stopped still advance the catalog token.
+
+The app catalog includes associated profiles exposed by `LauncherApps`. Personal app IDs remain
+`package/activity`; other profiles use `package@userSerial/activity`, where UserManager's serial
+survives restarts and is not reused when a profile is recreated. Home items, folders, shortcuts,
+and drawer keys share this identity. Cross-profile icons use the system badge, and app launches,
+shortcut queries/launches, and app info target the entry's UserHandle. An unavailable or locked
+profile does not discard stored favorites; a deleted profile (its serial no longer resolves) does. Uninstall actions for other profiles go through their
+app info screen so a package-delete intent cannot remove the personal copy.
 
 | File | Responsibility |
 | --- | --- |

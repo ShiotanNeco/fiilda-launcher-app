@@ -16,6 +16,8 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Process
+import android.os.UserHandle
+import android.os.UserManager
 import android.widget.Toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -63,7 +65,16 @@ internal data class LaunchableApp(
     val tileContentColorArgb: Int,
     /** Optional platform dynamic icon definition resolved while loading the app catalog. */
     val dynamicIcon: DynamicAppIconSpec? = null,
+    /** Null denotes the launcher's own profile; other profiles have a stable storage identity. */
+    val profile: LauncherAppProfile? = null,
 )
+
+internal data class LauncherAppProfile(val user: UserHandle, val serialNumber: Long)
+
+internal fun launcherAppId(packageName: String, className: String, profileSerial: Long? = null): String =
+    if (profileSerial == null) "$packageName/$className" else "$packageName@$profileSerial/$className"
+
+internal fun LaunchableApp.launchUser(): UserHandle = profile?.user ?: Process.myUserHandle()
 
 /**
  * A shortcut snapshot ready for rendering. The platform query and icon loading happen on the
@@ -229,8 +240,10 @@ private val PreferredPackages = listOf(
     "com.samsung.android.wallet",
 )
 
+internal fun LaunchableApp.packageIdentity(): String = favoriteId(this).substringBefore('/')
+
 internal fun favoriteId(app: LaunchableApp): String =
-    "${app.packageName}/${app.className}"
+    launcherAppId(app.packageName, app.className, app.profile?.serialNumber)
 
 private const val IconTileColorBitmapSize = 32
 
@@ -383,7 +396,8 @@ internal suspend fun queryLaunchableApps(context: Context): List<LaunchableApp> 
             )
         }
     }
-    val sortedApps = apps.distinctBy { "${it.packageName}/${it.className}" }
+    val profileApps = queryAssociatedProfileApps(context)
+    val sortedApps = (apps + profileApps).distinctBy(::favoriteId)
         .sortedWith(
             compareBy<LaunchableApp> { preferredIndex(it.packageName) }
                 .thenBy { it.label.lowercase(Locale.getDefault()) },
@@ -393,6 +407,44 @@ internal suspend fun queryLaunchableApps(context: Context): List<LaunchableApp> 
         throw CancellationException("Launcher app icon query was superseded")
     }
     return sortedApps
+}
+
+private suspend fun queryAssociatedProfileApps(
+    context: Context,
+): List<LaunchableApp> {
+    val launcherApps = context.getSystemService(LauncherApps::class.java) ?: return emptyList()
+    val userManager = context.getSystemService(UserManager::class.java) ?: return emptyList()
+    val profiles = runCatching { launcherApps.profiles }.getOrDefault(emptyList())
+    val density = context.resources.displayMetrics.densityDpi
+    return buildList {
+        profiles.filterNot { it == Process.myUserHandle() }.forEach { user ->
+            currentCoroutineContext().ensureActive()
+            val serial = runCatching { userManager.getSerialNumberForUser(user) }.getOrDefault(-1L)
+            if (serial < 0L) return@forEach
+            val activities = runCatching { launcherApps.getActivityList(null, user) }
+                .getOrDefault(emptyList())
+            for (activity in activities) {
+                currentCoroutineContext().ensureActive()
+                // Another profile can lock or disappear during a query. Omit that entry from this
+                // snapshot without treating the temporary failure as an uninstall.
+                val icon = runCatching { activity.getBadgedIcon(density) }.getOrNull() ?: continue
+                val label = runCatching { activity.label.toString() }.getOrNull() ?: continue
+                val component = activity.componentName
+                // Public cross-profile APIs do not expose the package version used by our icon
+                // cache. Compute colors off-thread for each catalog refresh instead.
+                val color = iconTileColorForDrawable(icon, component.packageName, component.className)
+                add(LaunchableApp(
+                    packageName = component.packageName,
+                    className = component.className,
+                    label = label,
+                    icon = icon,
+                    tileColorArgb = color,
+                    tileContentColorArgb = accessibleTileForegroundArgb(color),
+                    profile = LauncherAppProfile(user, serial),
+                ))
+            }
+        }
+    }
 }
 
 /**
@@ -425,7 +477,6 @@ internal suspend fun queryAppShortcuts(
         queryFlags = queryFlags or LauncherApps.ShortcutQuery.FLAG_MATCH_CACHED
     }
     val densityDpi = context.resources.displayMetrics.densityDpi
-    val user = Process.myUserHandle()
     val result = linkedMapOf<String, List<ResolvedLauncherShortcut>>()
     shortcutApps.forEach { app ->
         currentCoroutineContext().ensureActive()
@@ -434,7 +485,7 @@ internal suspend fun queryAppShortcuts(
             .setActivity(ComponentName(app.packageName, app.className))
             .setQueryFlags(queryFlags)
         val platformShortcuts = try {
-            launcherApps.getShortcuts(query, user)
+            launcherApps.getShortcuts(query, app.launchUser())
         } catch (_: SecurityException) {
             emptyList()
         } catch (_: RuntimeException) {
@@ -500,7 +551,13 @@ internal fun appLaunchResult(start: () -> Unit): AppLaunchResult = try {
 
 internal fun launchApp(context: Context, app: LaunchableApp): AppLaunchResult {
     val result = appLaunchResult {
-        context.startActivity(
+        if (app.profile != null) {
+            val launcherApps = context.getSystemService(LauncherApps::class.java)
+                ?: throw ActivityNotFoundException("LauncherApps unavailable")
+            launcherApps.startMainActivity(
+                ComponentName(app.packageName, app.className), app.launchUser(), null, null,
+            )
+        } else context.startActivity(
             Intent().setComponent(ComponentName(app.packageName, app.className)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             },
@@ -514,6 +571,8 @@ internal fun launchApp(context: Context, app: LaunchableApp): AppLaunchResult {
 
 /** Whether the platform should expose an uninstall action for this launcher entry. */
 internal fun canUninstallApp(context: Context, app: LaunchableApp): Boolean {
+    // The package-delete intent runs in our profile. Other profiles use their own app info UI.
+    if (app.profile != null) return false
     if (app.packageName == context.packageName) return false
     val applicationInfo = runCatching {
         context.packageManager.getApplicationInfo(app.packageName, 0)
@@ -531,6 +590,7 @@ internal fun uninstallIntentForPackage(packageName: String): Intent = Intent(Int
 
 /** Opens Android's confirmation UI; the user must confirm there before anything is removed. */
 internal fun uninstallApp(context: Context, app: LaunchableApp): AppLaunchResult {
+    if (app.profile != null) return openAppDetails(context, app)
     val result = appLaunchResult {
         context.startActivity(uninstallIntentForPackage(app.packageName))
     }
@@ -543,7 +603,13 @@ internal fun uninstallApp(context: Context, app: LaunchableApp): AppLaunchResult
 /** Opens Android's app info screen for the app's package. */
 internal fun openAppDetails(context: Context, app: LaunchableApp): AppLaunchResult {
     val result = appLaunchResult {
-        context.startActivity(
+        if (app.profile != null) {
+            val launcherApps = context.getSystemService(LauncherApps::class.java)
+                ?: throw ActivityNotFoundException("LauncherApps unavailable")
+            launcherApps.startAppDetailsActivity(
+                ComponentName(app.packageName, app.className), app.launchUser(), null, null,
+            )
+        } else context.startActivity(
             Intent(
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.parse("package:${app.packageName}"),
@@ -572,7 +638,7 @@ internal fun launchShortcut(
             shortcut.id,
             null,
             null,
-            Process.myUserHandle(),
+            app.launchUser(),
         )
     } catch (_: SecurityException) {
         Toast.makeText(context, tr("ショートカットを開けませんでした", "Couldn't open the shortcut"), Toast.LENGTH_SHORT).show()

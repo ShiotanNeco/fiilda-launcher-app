@@ -160,7 +160,7 @@ private fun AppGrid(
         ) {
             items(
                 items = apps,
-                key = { "home-${it.packageName}-${it.className}" },
+                key = { "home-${favoriteId(it)}" },
                 span = { app ->
                     GridItemSpan(appGridItemSize(app, columns, appTileSizes).columnSpan)
                 },
@@ -168,7 +168,7 @@ private fun AppGrid(
                 AppTile(
                     app = app,
                     posture = posture,
-                    selected = app.packageName == selectedPackage,
+                    selected = app.packageIdentity() == selectedPackage,
                     size = appTileSizes[favoriteId(app)] ?: AppTileSize.SMALL,
                     cellSize = cellWidth,
                     onClick = { onOpenApp(app) },
@@ -1228,8 +1228,8 @@ internal fun AppDrawer(
                     )
                 }
             } else {
-                items(items = visibleApps, key = { "drawer-${it.packageName}-${it.className}" }) { app ->
-                    val swayId = "drawer-${app.packageName}-${app.className}"
+                items(items = visibleApps, key = { "drawer-${favoriteId(it)}" }) { app ->
+                    val swayId = "drawer-${favoriteId(app)}"
                     if (drawerFloat != null) {
                         DisposableEffect(drawerFloat, swayId) {
                             onDispose { drawerFloat.simulation.remove(swayId) }
@@ -1256,7 +1256,7 @@ internal fun AppDrawer(
                         AppTile(
                             app = app,
                             posture = posture,
-                            selected = app.packageName == selectedPackage,
+                            selected = app.packageIdentity() == selectedPackage,
                             size = AppTileSize.SMALL,
                             accessibilityLabel = tr("アプリ、${app.label}", "App, ${app.label}"),
                             drawerGestureSignal = drawerGestureSignal,

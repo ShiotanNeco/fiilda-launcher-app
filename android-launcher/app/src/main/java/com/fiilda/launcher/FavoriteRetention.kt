@@ -3,6 +3,7 @@ package com.fiilda.launcher
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.UserManager
 
 /**
  * Result of matching the stored favorites against the current launcher catalog at startup.
@@ -99,6 +100,7 @@ internal fun List<HomeFolder>.renameHomeFolderMembers(renames: Map<String, Strin
  */
 internal fun isFavoritePackageInstalled(context: Context, packageName: String): Boolean {
     if (packageName.isBlank()) return false
+    if ('@' in packageName) return isFavoriteProfilePresent(context, packageName)
     val packageManager = context.packageManager
     return try {
         when {
@@ -128,4 +130,15 @@ internal fun isFavoritePackageInstalled(context: Context, packageName: String): 
     } catch (_: RuntimeException) {
         true
     }
+}
+
+/**
+ * Profile favorites are stored as `package@userSerial`. A cross-profile package query cannot tell
+ * a removed app from one in a paused or locked profile, so keep the favorite while its profile
+ * exists and drop it only once the profile itself is gone (serials are never reused).
+ */
+private fun isFavoriteProfilePresent(context: Context, profilePackage: String): Boolean {
+    val serial = profilePackage.substringAfter('@').toLongOrNull() ?: return true
+    val userManager = context.getSystemService(UserManager::class.java) ?: return true
+    return runCatching { userManager.getUserForSerialNumber(serial) != null }.getOrDefault(true)
 }

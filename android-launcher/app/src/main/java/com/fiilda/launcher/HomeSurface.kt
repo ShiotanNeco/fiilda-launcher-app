@@ -175,7 +175,7 @@ internal fun HomeSurface(
         val homePackageNames = installedApps
             .asSequence()
             .filter { app -> favoriteId(app) in homePages.allIds }
-            .map { app -> app.packageName }
+            .map { app -> app.notificationPackageKey() }
             .toSet()
         projectFavoriteNotifications(
             notifications = notificationState.snapshots,
@@ -1420,7 +1420,7 @@ private fun HomeBoard(
                     emptyList()
                 }
                 val notificationsForItem = if (item is HomeItem.App) {
-                    notificationByPackage[item.app.packageName].orEmpty()
+                    notificationByPackage[item.app.notificationPackageKey()].orEmpty()
                 } else {
                     emptyList()
                 }
@@ -1798,7 +1798,7 @@ private fun HomeBoard(
                         is HomeItem.App -> AppTile(
                             app = item.app,
                             posture = posture,
-                            selected = item.app.packageName == selectedPackage,
+                            selected = item.app.packageIdentity() == selectedPackage,
                             // The cyan frame is a board motif on the home surface, not a
                             // persistent marker for whichever app was opened last.
                             showSelectedBorder = false,

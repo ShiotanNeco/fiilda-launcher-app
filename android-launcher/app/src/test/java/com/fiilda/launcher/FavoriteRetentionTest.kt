@@ -6,6 +6,25 @@ import org.junit.Test
 
 class FavoriteRetentionTest {
     @Test
+    fun activityRenameCannotSwitchBetweenPersonalAndWorkProfiles() {
+        val result = reconcileStoredFavorites(
+            storedFavorites = listOf("mail/Old", "mail@42/Old"),
+            installedAppIds = listOf("mail/New", "mail@42/New"),
+            isPackageInstalled = { error("not needed for a resolvable rename") },
+        )
+        assertEquals(listOf("mail/New", "mail@42/New"), result.favoriteIds)
+        assertEquals(mapOf("mail/Old" to "mail/New", "mail@42/Old" to "mail@42/New"), result.renamedIds)
+
+        val paused = reconcileStoredFavorites(
+            storedFavorites = listOf("mail@42/Old"),
+            installedAppIds = listOf("mail/New"),
+            isPackageInstalled = { it == "mail@42" },
+        )
+        assertEquals(listOf("mail@42/Old"), paused.favoriteIds)
+        assertTrue(paused.renamedIds.isEmpty())
+    }
+
+    @Test
     fun unresolvedFavoriteIsRetainedWhilePackageIsStillInstalled() {
         // An archived or disabled app disappears from the launcher query but keeps its package.
         val result = reconcileStoredFavorites(

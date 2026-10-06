@@ -9,6 +9,16 @@ import org.junit.Test
 
 class NotificationSupportTest {
     @Test
+    fun samePackageNotificationsStayInTheirOwnProfile() {
+        val personal = ActiveNotificationSnapshot(NotificationMetadata("personal", "mail"))
+        val work = ActiveNotificationSnapshot(NotificationMetadata("work", "mail"), profileUserId = 10)
+        val projected = projectFavoriteNotifications(listOf(personal, work), setOf("mail", "mail@10"))
+        assertEquals(listOf(personal), projected["mail"])
+        assertEquals(listOf(work), projected["mail@10"])
+        assertEquals(mapOf("mail@10" to listOf(work)), projectFavoriteNotifications(listOf(personal, work), setOf("mail@10")))
+    }
+
+    @Test
     fun filtersSummariesMediaAndOngoingNotifications() {
         val selected = selectProjectableNotifications(
             listOf(

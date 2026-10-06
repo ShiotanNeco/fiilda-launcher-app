@@ -24,14 +24,15 @@ internal fun pickStarterApps(
     limit: Int = StarterAppLimit,
     minimum: Int = StarterAppMinimum,
 ): List<LaunchableApp> {
-    val byPackage = apps.groupBy { it.packageName }
+    val personalApps = apps.filter { it.profile == null }
+    val byPackage = personalApps.groupBy { it.packageName }
     val picked = rolePackages
         .filterNotNull()
         .distinct()
         .mapNotNull { byPackage[it]?.firstOrNull() }
         .take(limit)
     if (picked.size >= minimum) return picked
-    return (picked + apps.filterNot { it in picked }).take(minimum)
+    return (picked + personalApps.filterNot { it in picked }).take(minimum)
 }
 
 /** Default handler packages for phone, messages, browser, camera, gallery, email, maps, calendar. */

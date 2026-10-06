@@ -718,16 +718,14 @@ internal fun AppActionDialog(
         normalizedInitialTargetHomePage
     }
     var addTargetHomePage by rememberSaveable(
-        app.packageName,
-        app.className,
+        favoriteId(app),
         isFavorite,
         initialTargetHomePage,
     ) {
         mutableIntStateOf(normalizedInitialTargetHomePage)
     }
     var moveTargetHomePage by rememberSaveable(
-        app.packageName,
-        app.className,
+        favoriteId(app),
         isFavorite,
     ) {
         mutableIntStateOf(defaultMoveTargetHomePage)

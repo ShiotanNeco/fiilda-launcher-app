@@ -3,6 +3,9 @@ package com.fiilda.launcher
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.content.pm.LauncherApps
 import android.content.pm.ShortcutInfo
 import android.os.Build
@@ -54,6 +57,13 @@ class MainActivity : ComponentActivity() {
     private val appCatalogRefresh = mutableIntStateOf(0)
     private val launcherAppsCallbackHandler = Handler(Looper.getMainLooper())
     private var isLauncherAppsCallbackRegistered = false
+    private var isProfileReceiverRegistered = false
+    private var knownProfiles = emptySet<UserHandle>()
+    private val profileReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            requestLauncherAppsRefresh(catalogChanged = true)
+        }
+    }
     private val launcherAppsCallback = object : LauncherApps.Callback() {
         override fun onPackageAdded(packageName: String, user: UserHandle) {
             launchableAppIconColorCache.invalidatePackage(packageName)
@@ -163,6 +173,35 @@ class MainActivity : ComponentActivity() {
         // launcher is stopped (install/uninstall from another app) must still refresh the
         // catalog, which lets an ordinary return to home skip the full app query.
         registerLauncherAppsCallback()
+        val profileFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_MANAGED_PROFILE_ADDED)
+            addAction(Intent.ACTION_MANAGED_PROFILE_REMOVED)
+            addAction(Intent.ACTION_MANAGED_PROFILE_AVAILABLE)
+            addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE)
+            addAction(Intent.ACTION_MANAGED_PROFILE_UNLOCKED)
+            // Clone and private profiles are not managed profiles; newer releases announce them
+            // with the generic profile broadcasts. Older releases rely on the resume check below.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                addAction(Intent.ACTION_PROFILE_ACCESSIBLE)
+                addAction(Intent.ACTION_PROFILE_INACCESSIBLE)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                addAction(Intent.ACTION_PROFILE_ADDED)
+                addAction(Intent.ACTION_PROFILE_REMOVED)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                addAction(Intent.ACTION_PROFILE_AVAILABLE)
+                addAction(Intent.ACTION_PROFILE_UNAVAILABLE)
+            }
+        }
+        knownProfiles = launcherProfiles()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(profileReceiver, profileFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(profileReceiver, profileFilter)
+        }
+        isProfileReceiverRegistered = true
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
@@ -247,8 +286,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        externalWidgetLifecycleRefresh.value++
+        // A profile added or removed without a broadcast this release delivers (for example a
+        // clone profile before Android 14) still changes the catalog's profile set.
+        val profiles = launcherProfiles()
+        if (profiles != knownProfiles) {
+            knownProfiles = profiles
+            requestLauncherAppsRefresh(catalogChanged = true)
+        } else {
+            externalWidgetLifecycleRefresh.value++
+        }
     }
+
+    private fun launcherProfiles(): Set<UserHandle> =
+        runCatching { getSystemService(LauncherApps::class.java)?.profiles.orEmpty().toSet() }
+            .getOrDefault(emptySet())
 
     override fun onStop() {
         if (isWidgetHostListening) {
@@ -266,6 +317,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (isProfileReceiverRegistered) {
+            unregisterReceiver(profileReceiver)
+            isProfileReceiverRegistered = false
+        }
         unregisterLauncherAppsCallback()
         // A picker/configuration activity that disappears because the launcher is destroyed must
         // not leave an allocated ID behind forever. Keep it during a configuration/process-state
