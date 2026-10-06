@@ -1,0 +1,15 @@
+.DS_Store
+
+# Local Android Studio / Kotlin state
+android-launcher/.idea/
+android-launcher/.kotlin/
+
+# Emulator and QA evidence stays local. Keep the directory in Git.
+android-launcher/artifacts/*
+!android-launcher/artifacts/.gitkeep
+
+# Build outputs and local machine settings
+build/
+.gradle/
+local.properties
+*.apk

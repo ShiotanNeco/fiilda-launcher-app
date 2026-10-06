@@ -1,0 +1,22 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <application>
+        <!-- Deterministic optical checks; this activity is absent from release APKs. -->
+        <activity
+            android:name=".GlassRenderProbeActivity"
+            android:exported="true"
+            android:label="Glass rendering probe" />
+        <activity
+            android:name=".GlassComponentsProbeActivity"
+            android:exported="true"
+            android:label="Glass component probe" />
+        <activity
+            android:name=".GlassLiveContentProbeActivity"
+            android:exported="true"
+            android:label="Glass live content probe" />
+        <activity
+            android:name=".WidgetGalleryProbeActivity"
+            android:exported="true"
+            android:label="Widget gallery probe" />
+    </application>
+</manifest>

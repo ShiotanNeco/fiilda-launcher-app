@@ -5,7 +5,7 @@
 A home screen (launcher) app for Android foldables such as the Galaxy Z Fold.
 It arranges apps and widgets on both the cover screen and the inner screen.
 
-This repository is for **downloading the app**. Get the APK from [Releases](../../releases).
+This repository holds the **source code** and the **downloads**. Get the APK from [Releases](../../releases).
 
 <p>
   <img src="docs/01_default_top.png" width="48%" alt="Home screen, Default theme">
@@ -73,6 +73,21 @@ Each permission is asked only when you first use the widget or feature that need
 Found a bug, an odd translation, or text that doesn't fit? Please open an issue from [here](../../issues/new/choose).
 English is fine. The developer reads Japanese, so short and simple sentences with a screenshot are the most helpful.
 
+## Source code and contributing
+
+The Android app is in [`android-launcher/`](android-launcher). It is a Kotlin / Jetpack Compose project (Android 10+, compileSdk 36).
+
+```sh
+cd android-launcher
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+```
+
+- [`android-launcher/README.md`](android-launcher/README.md): features and build details (Japanese)
+- [`android-launcher/ARCHITECTURE.md`](android-launcher/ARCHITECTURE.md): which file owns what
+- [`AGENTS.md`](AGENTS.md): coding principles for this project
+
+Layout fixes for other foldables (Xiaomi, OPPO, Honor, Pixel, …) are very welcome. Please include your device model and screen sizes, and before/after screenshots of the cover and inner screens. Debug builds run much slower than release builds, so judge smoothness with a release or `profiling` build (`./gradlew :app:assembleProfiling`).
+
 ## Notes
 
 - This is a personal project. It comes with no warranty.
@@ -89,7 +104,7 @@ English is fine. The developer reads Japanese, so short and simple sentences wit
 Galaxy Z Foldなどの折りたたみ端末向けの、Androidホームアプリ（ランチャー）です。
 閉じた状態のカバー画面と、開いた状態の内側画面のどちらにも合わせて、アプリとウィジェットを並べられます。
 
-このリポジトリは**アプリの配布用**です。インストール用のファイル（APK）は [Releases](../../releases) にあります。
+このリポジトリには、**ソースコード**と**配布用のファイル**があります。インストール用のファイル（APK）は [Releases](../../releases) にあります。
 
 ## はじめて開いたとき
 
@@ -133,6 +148,10 @@ Galaxy Z Foldなどの折りたたみ端末向けの、Androidホームアプリ
 ## 不具合の報告
 
 不具合や気になる表示があれば、[こちら](../../issues/new/choose)から報告してください。スクショがあると助かります。
+
+## ソースコード
+
+Androidアプリのコードは [`android-launcher/`](android-launcher) にあります（Kotlin / Jetpack Compose）。ビルド方法と機能の説明は [`android-launcher/README.md`](android-launcher/README.md) を見てください。ほかの折りたたみ端末向けのレイアウト調整など、協力を歓迎します。
 
 ## 注意
 
