@@ -94,6 +94,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -955,6 +958,12 @@ private fun ActionNote(text: String) {
     )
 }
 
+// A list fling must stop at its own edge instead of kicking the enclosing sheet's spring.
+internal object WidgetPickerScrollConnection : NestedScrollConnection {
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        Velocity(0f, available.y)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun WidgetSelectorDialog(
@@ -1048,6 +1057,7 @@ internal fun WidgetSelectorDialog(
                     // Fill the dialog's bounded remaining height so scrolling never remeasures
                     // the list from its visible content and shifts into the target selector.
                     .weight(1f)
+                    .nestedScroll(WidgetPickerScrollConnection)
                     .clipToBounds(),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 contentPadding = PaddingValues(top = 12.dp, bottom = 2.dp),

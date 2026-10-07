@@ -298,6 +298,9 @@ private fun Modifier.glassSceneContributorImpl(
         properties["cornerRadius"] = cornerRadius
     },
 ) {
+    // Hidden surfaces and layouts without a scene consumer must not allocate capture layers or
+    // subscribe every tile to the same scroll/transition signal.
+    if (!enabled) return@composed this
     val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
     val record = remember(scene) { GlassSceneContributorRecord(layer = layer) }
     val geometryVersionState = rememberUpdatedState(geometryVersion)

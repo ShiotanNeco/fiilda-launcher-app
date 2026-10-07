@@ -4,7 +4,18 @@ The drawer owns the query text and presents the search results supplied by
 `rememberDrawerSearchController(query, active, refreshToken)`. Search target management is
 available from the full-screen Settings opened from a long-press action menu, while the drawer
 only presents results. The controller owns all search metadata, permission rechecks, source
-preferences, document targets, and result opening. Query text and history are never persisted.
+preferences, document targets, and result opening. Query text and history are never persisted. The search field stays fixed at the bottom of the results viewport and above the launcher navigation/system inset or the on-screen keyboard. Leaving the
+drawer for Home or Settings, or leaving the launcher for an app, a search result, or an external
+search opened from it, clears the query and input focus. Failed app launches leave the query
+available for retry.
+
+The results meet the search field in the same way that Home tiles meet the navigation tabs:
+Glass scrolls behind the floating field and blurs the overlapping tiles, with end padding to bring the final row clear of it.
+Opaque themes clip above the field and use the shared 24 dp edge fade. Keyboard and navigation
+insets lift the field without changing this boundary treatment. The search field reserves the
+resting navigation height throughout keyboard motion, so IME dismissal returns directly to the
+resting position without dipping below it. Tabs stay mounted behind the IME and are revealed
+by its closing animation, rather than appearing after the final keyboard frame.
 
 ## Controller
 

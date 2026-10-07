@@ -1051,6 +1051,7 @@ internal fun AppDrawer(
     query: String,
     apps: List<LaunchableApp>,
     navigationBottomPadding: Dp = 0.dp,
+    viewportBottomInset: Dp = 0.dp,
     searchController: DrawerSearchController,
     allowSearchTargetPickerWhenInactive: Boolean,
     selectedPackage: String?,
@@ -1137,169 +1138,186 @@ internal fun AppDrawer(
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
     ) {
-        // MainActivity keeps adjustNothing; only the drawer consumes IME height so the final
-        // result/footer remains reachable while the search field owns the keyboard.
+        // adjustNothing leaves the IME over the root. Opaque themes already exclude the
+        // navigation bar from this viewport, so subtract that inset before lifting search.
         val drawerImeBottomPadding = WindowInsets.ime
             .asPaddingValues()
             .calculateBottomPadding()
-        val drawerContentBottomPadding = 8.dp + drawerTrailingPadding + drawerImeBottomPadding +
-            if (posture != Posture.INNER_LANDSCAPE && drawerImeBottomPadding <= 0.dp) {
-                navigationBottomPadding
-            } else {
-                0.dp
-            }
+        val searchBottomPadding = 8.dp + maxOf(
+            (drawerImeBottomPadding - viewportBottomInset).coerceAtLeast(0.dp),
+            navigationBottomPadding,
+            drawerTrailingPadding,
+        )
+        val glassEnabled = LocalLauncherGlass.current.enabled
+        val searchOccupiedHeight = 48.dp + searchBottomPadding
+        val gridBottomPadding = 8.dp + if (glassEnabled) searchOccupiedHeight else NavigationEdgeFadeHeight
         val emptyPanelMinHeight = (
             maxHeight -
                 with(LocalDensity.current) { drawerHeaderHeightPx.toDp() } -
-                3.dp -
-                drawerContentBottomPadding
+                3.dp - 8.dp - searchOccupiedHeight -
+                (if (glassEnabled) 0.dp else NavigationEdgeFadeHeight)
             ).coerceAtLeast(0.dp)
-        LazyVerticalGrid(
-            modifier = Modifier
-                .fillMaxSize()
-                .homeFloatViewport(drawerFloat)
-                .then(drawerGestureObserver),
-            columns = GridCells.Fixed(columns),
-            state = drawerGridState,
-            contentPadding = PaddingValues(bottom = drawerContentBottomPadding),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+        Box(
+            Modifier.fillMaxSize()
+                .padding(bottom = if (glassEnabled) 0.dp else searchOccupiedHeight),
         ) {
-            item(
-                key = "drawer-header",
-                span = { GridItemSpan(maxLineSpan) },
+            LazyVerticalGrid(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .homeFloatViewport(drawerFloat)
+                    .then(drawerGestureObserver),
+                columns = GridCells.Fixed(columns),
+                state = drawerGridState,
+                contentPadding = PaddingValues(bottom = gridBottomPadding),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onSizeChanged { size ->
-                            if (drawerHeaderHeightPx != size.height) {
-                                drawerHeaderHeightPx = size.height
-                            }
-                        },
-                ) {
-                    // The inset is part of the first lazy item. It protects the header at scroll 0,
-                    // then naturally scrolls away so the drawer can pass underneath the status bar.
-                    Spacer(modifier = Modifier.height(drawerTopPadding))
-                    if (posture == Posture.INNER_LANDSCAPE) {
-                        Header(
-                            showWideSwitcher = true,
-                            page = LauncherPage.DRAWER,
-                            onToggleWideSurface = onToggleWideSurface,
-                            includeTopInset = false,
-                        )
-                    }
-                    BasicSearchField(query = query, onQueryChange = onQueryChange)
-                    if (query.isBlank()) {
-                        ModeHeading(
-                            kicker = tr("アプリドロワー", "App drawer"),
-                            title = tr("すべてのアプリ", "All apps"),
-                            count = tr("${apps.size}件", "${apps.size}"),
-                        )
-                    } else {
-                        DrawerSearchAppsHeading(
-                            appCount = apps.size,
-                            expanded = appResultsExpanded,
-                            canExpand = apps.size > columns * 2,
-                        )
-                    }
-                    // LazyVerticalGrid inserts its 3.dp arrangement between the header and the
-                    // first app. Keep the old 4.dp grid content padding by supplying the remaining
-                    // 1.dp here, avoiding an initial 3/4.dp shift in the search/header geometry.
-                    Spacer(modifier = Modifier.height(1.dp))
-                }
-            }
-            val initialAppCount = columns * 2
-            val visibleApps = if (query.isBlank() || appResultsExpanded) {
-                apps
-            } else {
-                apps.take(initialAppCount)
-            }
-            if (visibleApps.isEmpty()) {
                 item(
-                    key = "drawer-empty",
+                    key = "drawer-header",
                     span = { GridItemSpan(maxLineSpan) },
                 ) {
-                    EmptyPanel(
-                        text = tr("一致するアプリはありません", "No matching apps"),
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = if (query.isBlank()) emptyPanelMinHeight else 96.dp),
-                    )
+                            .onSizeChanged { size ->
+                                if (drawerHeaderHeightPx != size.height) {
+                                    drawerHeaderHeightPx = size.height
+                                }
+                            },
+                    ) {
+                        // The inset is part of the first lazy item. It protects the header at scroll 0,
+                        // then naturally scrolls away so the drawer can pass underneath the status bar.
+                        Spacer(modifier = Modifier.height(drawerTopPadding))
+                        if (posture == Posture.INNER_LANDSCAPE) {
+                            Header(
+                                showWideSwitcher = true,
+                                page = LauncherPage.DRAWER,
+                                onToggleWideSurface = onToggleWideSurface,
+                                includeTopInset = false,
+                            )
+                        }
+                        if (query.isBlank()) {
+                            ModeHeading(
+                                kicker = tr("アプリドロワー", "App drawer"),
+                                title = tr("すべてのアプリ", "All apps"),
+                                count = tr("${apps.size}件", "${apps.size}"),
+                            )
+                        } else {
+                            DrawerSearchAppsHeading(
+                                appCount = apps.size,
+                                expanded = appResultsExpanded,
+                                canExpand = apps.size > columns * 2,
+                            )
+                        }
+                        // LazyVerticalGrid inserts its 3.dp arrangement between the header and the
+                        // first app. Keep the old 4.dp grid content padding by supplying the remaining
+                        // 1.dp here, avoiding an initial 3/4.dp shift in the search/header geometry.
+                        Spacer(modifier = Modifier.height(1.dp))
+                    }
                 }
-            } else {
-                items(items = visibleApps, key = { "drawer-${favoriteId(it)}" }) { app ->
-                    val swayId = "drawer-${favoriteId(app)}"
-                    if (drawerFloat != null) {
-                        DisposableEffect(drawerFloat, swayId) {
-                            onDispose { drawerFloat.simulation.remove(swayId) }
+                val initialAppCount = columns * 2
+                val visibleApps = if (query.isBlank() || appResultsExpanded) {
+                    apps
+                } else {
+                    apps.take(initialAppCount)
+                }
+                if (visibleApps.isEmpty()) {
+                    item(
+                        key = "drawer-empty",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) {
+                        EmptyPanel(
+                            text = tr("一致するアプリはありません", "No matching apps"),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = if (query.isBlank()) emptyPanelMinHeight else 96.dp),
+                        )
+                    }
+                } else {
+                    items(items = visibleApps, key = { "drawer-${favoriteId(it)}" }) { app ->
+                        val swayId = "drawer-${favoriteId(app)}"
+                        if (drawerFloat != null) {
+                            DisposableEffect(drawerFloat, swayId) {
+                                onDispose { drawerFloat.simulation.remove(swayId) }
+                            }
+                        }
+                        Box(
+                            modifier = if (drawerFloat != null) {
+                                // Drawer tiles report their live center in root coordinates (its board
+                                // origin stays at zero), measured outside their own float layer.
+                                Modifier
+                                    .onGloballyPositioned { coordinates ->
+                                        val center = coordinates.positionInRoot() + Offset(
+                                            coordinates.size.width / 2f,
+                                            coordinates.size.height / 2f,
+                                        )
+                                        drawerFloat.simulation.place(swayId, center.x, center.y)
+                                    }
+                                    .homeFloatOffset(drawerFloat, swayId, enabled = true)
+                            } else {
+                                Modifier
+                            },
+                            propagateMinConstraints = true,
+                        ) {
+                            AppTile(
+                                app = app,
+                                posture = posture,
+                                selected = app.packageIdentity() == selectedPackage,
+                                size = AppTileSize.SMALL,
+                                accessibilityLabel = tr("アプリ、${app.label}", "App, ${app.label}"),
+                                drawerGestureSignal = drawerGestureSignal,
+                                onClick = { onOpenApp(app) },
+                                onLongClick = { onLongPressApp(app) },
+                            )
                         }
                     }
-                    Box(
-                        modifier = if (drawerFloat != null) {
-                            // Drawer tiles report their live center in root coordinates (its board
-                            // origin stays at zero), measured outside their own float layer.
-                            Modifier
-                                .onGloballyPositioned { coordinates ->
-                                    val center = coordinates.positionInRoot() + Offset(
-                                        coordinates.size.width / 2f,
-                                        coordinates.size.height / 2f,
-                                    )
-                                    drawerFloat.simulation.place(swayId, center.x, center.y)
-                                }
-                                .homeFloatOffset(drawerFloat, swayId, enabled = true)
-                        } else {
-                            Modifier
-                        },
-                        propagateMinConstraints = true,
+                }
+                if (query.isNotBlank() && apps.size > initialAppCount) {
+                    item(
+                        key = "drawer-app-expansion",
+                        span = { GridItemSpan(maxLineSpan) },
                     ) {
-                        AppTile(
-                            app = app,
-                            posture = posture,
-                            selected = app.packageIdentity() == selectedPackage,
-                            size = AppTileSize.SMALL,
-                            accessibilityLabel = tr("アプリ、${app.label}", "App, ${app.label}"),
-                            drawerGestureSignal = drawerGestureSignal,
-                            onClick = { onOpenApp(app) },
-                            onLongClick = { onLongPressApp(app) },
+                        DrawerSearchExpansionAction(
+                            expanded = appResultsExpanded,
+                            onClick = { appResultsExpanded = !appResultsExpanded },
+                        )
+                    }
+                }
+                if (query.isNotBlank()) {
+                    item(
+                        key = "drawer-external-search",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) {
+                        DrawerSearchExternalSection(onOpen = searchController::openExternal)
+                    }
+                    item(
+                        key = "drawer-device-search",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) {
+                        DrawerSearchDeviceSection(
+                            state = drawerSearchState,
+                            controller = searchController,
+                            contactsVisibleCount = contactsVisibleCount,
+                            filesVisibleCount = filesVisibleCount,
+                            onShowMoreContacts = { contactsVisibleCount += 20 },
+                            onCollapseContacts = { contactsVisibleCount = 5 },
+                            onShowMoreFiles = { filesVisibleCount += 20 },
+                            onCollapseFiles = { filesVisibleCount = 5 },
                         )
                     }
                 }
             }
-            if (query.isNotBlank() && apps.size > initialAppCount) {
-                item(
-                    key = "drawer-app-expansion",
-                    span = { GridItemSpan(maxLineSpan) },
-                ) {
-                    DrawerSearchExpansionAction(
-                        expanded = appResultsExpanded,
-                        onClick = { appResultsExpanded = !appResultsExpanded },
-                    )
-                }
+            if (!glassEnabled) {
+                LauncherControlEdgeFade(Modifier.align(Alignment.BottomCenter))
             }
-            if (query.isNotBlank()) {
-                item(
-                    key = "drawer-external-search",
-                    span = { GridItemSpan(maxLineSpan) },
-                ) {
-                    DrawerSearchExternalSection(onOpen = searchController::openExternal)
-                }
-                item(
-                    key = "drawer-device-search",
-                    span = { GridItemSpan(maxLineSpan) },
-                ) {
-                    DrawerSearchDeviceSection(
-                        state = drawerSearchState,
-                        controller = searchController,
-                        contactsVisibleCount = contactsVisibleCount,
-                        filesVisibleCount = filesVisibleCount,
-                        onShowMoreContacts = { contactsVisibleCount += 20 },
-                        onCollapseContacts = { contactsVisibleCount = 5 },
-                        onShowMoreFiles = { filesVisibleCount += 20 },
-                        onCollapseFiles = { filesVisibleCount = 5 },
-                    )
-                }
-            }
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(bottom = searchBottomPadding),
+        ) {
+            BasicSearchField(query = query, onQueryChange = onQueryChange)
         }
     }
     }
@@ -1325,7 +1343,10 @@ private fun BasicSearchField(query: String, onQueryChange: (String) -> Unit) {
             .height(48.dp)
             .then(
                 if (LocalLauncherGlass.current.enabled) {
-                    Modifier.launcherGlassSearchControl(fallbackColor = FiiLDADeep)
+                    Modifier.launcherGlassSearchControl(
+                        fallbackColor = FiiLDADeep,
+                        sceneEnabled = true,
+                    )
                 } else {
                     Modifier.launcherShapedSurface(
                         LauncherSearchControlShape,
@@ -1338,8 +1359,7 @@ private fun BasicSearchField(query: String, onQueryChange: (String) -> Unit) {
         decorationBox = { innerTextField ->
             Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .launcherGlassContributor(),
+                    .fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(

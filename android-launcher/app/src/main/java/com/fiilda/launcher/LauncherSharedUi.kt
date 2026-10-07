@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -77,6 +78,18 @@ internal fun homeWidgetIcon(widget: HomeWidget): ImageVector = when (widget) {
     HomeWidget.MEDIA -> Icons.Filled.PlayArrow
     HomeWidget.FORECAST -> Icons.Filled.WbSunny
     HomeWidget.PHOTO -> Icons.Filled.Photo
+}
+
+internal val NavigationEdgeFadeHeight = 24.dp
+
+@Composable
+internal fun LauncherControlEdgeFade(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(NavigationEdgeFadeHeight)
+            .background(Brush.verticalGradient(listOf(FiiLDABlack.copy(alpha = 0f), FiiLDABlack))),
+    )
 }
 
 @Composable

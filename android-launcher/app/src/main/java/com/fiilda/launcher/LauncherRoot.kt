@@ -60,7 +60,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -93,9 +92,10 @@ import java.time.LocalDateTime
 import kotlin.math.roundToInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 
 /** State coordinator and top level navigation for the launcher surfaces. */
-private val NavigationEdgeFadeHeight = 24.dp
 
 private val LauncherPageSaver = Saver<LauncherPage, String>(
     save = { launcherPageToken(it) },
@@ -921,6 +921,20 @@ internal fun FiiLDALauncher(
         }
     }
 
+    LaunchedEffect(page, showSettingsScreen) {
+        if (page != LauncherPage.DRAWER || showSettingsScreen) {
+            query = ""
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+        }
+    }
+    // Apps, search results, and external searches opened from the drawer all leave the launcher.
+    // Clear once it is hidden, so a return starts empty without the results collapsing during the
+    // launch animation. A failed launch keeps the launcher visible and the query for a retry.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        query = ""
+        focusManager.clearFocus(force = true)
+    }
     LaunchedEffect(page) {
         if (page != LauncherPage.HOME) {
             homePreviewOrder = null
@@ -1775,8 +1789,9 @@ internal fun FiiLDALauncher(
                     ),
                 content = { posture ->
                 val homePresentation = launcherHomePresentationFor(posture)
-                val navigationVisible = homePresentation != LauncherHomePresentation.START_CANVAS &&
-                    !(glassEnabled && WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp)
+                // Keep the tabs mounted behind the IME so its own animation reveals them,
+                // instead of adding them only after the final keyboard frame.
+                val navigationVisible = homePresentation != LauncherHomePresentation.START_CANVAS
                 val navigationSafeBottom = WindowInsets.systemBars
                     .union(WindowInsets.displayCutout)
                     .only(WindowInsetsSides.Bottom)
@@ -2089,7 +2104,7 @@ internal fun FiiLDALauncher(
                                         ),
                                 ) {
                                     LauncherGlassSceneScope(
-                                        enabled = !showSettingsScreen &&
+                                        enabled = navigationVisible && !showSettingsScreen &&
                                             activeFolderExpansionSession == null &&
                                             homeSceneVisible,
                                         alpha = homeSceneAlpha,
@@ -2339,7 +2354,10 @@ internal fun FiiLDALauncher(
                                 posture = posture,
                                 query = query,
                                 apps = filteredApps,
-                                navigationBottomPadding = navigationScrollPadding,
+                                // Reserve the tab height throughout IME motion so search never
+                                // drops below its resting position.
+                                navigationBottomPadding = if (glassEnabled) navigationOcclusion else 0.dp,
+                                viewportBottomInset = if (glassEnabled) 0.dp else navigationOcclusion,
                                 searchController = drawerSearchController,
                                 allowSearchTargetPickerWhenInactive = showSettingsScreen,
                                 selectedPackage = selectedPackage,
@@ -2378,18 +2396,8 @@ internal fun FiiLDALauncher(
                         // Opaque themes clip content at the bar's top edge. Fade it into the
                         // background there so tiles are not cut on a straight line next to the
                         // bar's rounded corners. Draw-only: touches pass through.
-                        val fadeColor = FiiLDABlack
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .height(NavigationEdgeFadeHeight)
-                                .zIndex(2f)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(fadeColor.copy(alpha = 0f), fadeColor),
-                                    ),
-                                ),
+                        LauncherControlEdgeFade(
+                            modifier = Modifier.align(Alignment.BottomCenter).zIndex(2f),
                         )
                     }
                     }

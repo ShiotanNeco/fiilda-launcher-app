@@ -232,7 +232,8 @@ internal fun LauncherGlassHost(
                     geometryVersion: Any?,
                 ): Modifier {
                     val sceneForSurface = if (
-                        kind == LauncherGlassSurfaceKind.NAVIGATION && sceneEnabled
+                        sceneEnabled && (kind == LauncherGlassSurfaceKind.NAVIGATION ||
+                            kind == LauncherGlassSurfaceKind.SEARCH_CONTROL)
                     ) {
                         scene
                     } else {
@@ -409,12 +410,13 @@ internal fun Modifier.launcherGlassFolderSheet(
 internal fun Modifier.launcherGlassSearchControl(
     fallbackColor: Color? = null,
     geometryVersion: Any? = null,
+    sceneEnabled: Boolean = false,
 ): Modifier = LocalLauncherGlass.current.surfaceModifier(
     modifier = this,
     kind = LauncherGlassSurfaceKind.SEARCH_CONTROL,
     fallbackColor = fallbackColor,
     cornerRadius = GlassSearchCornerRadius,
-    sceneEnabled = false,
+    sceneEnabled = sceneEnabled,
     geometryVersion = geometryVersion ?: LocalLauncherGlassGeometryVersion.current,
 )
 

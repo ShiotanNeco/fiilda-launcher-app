@@ -202,9 +202,10 @@ internal fun launcherSurfaceLayerTargetOffset(
  *
  * The narrow pager presentation keeps the established horizontal movement. The unfolded
  * horizontal canvas uses a centered reveal instead: the layer is already centered, and its
- * content resolves from a small, transparent, blurred state to its settled form. Keeping this
- * target pure makes the posture boundary explicit and keeps interrupted transitions retargetable
- * from the current Compose animation values.
+ * content resolves from a small, transparent state to its settled form. Opaque themes also blur
+ * that reveal; glass retains its per-tile material filtering. Keeping this target pure makes the
+ * posture boundary explicit and keeps interrupted transitions retargetable from the current
+ * Compose animation values.
  */
 internal data class LauncherSurfaceLayerVisualTarget(
     val offsetPx: Int,
@@ -239,7 +240,9 @@ internal fun launcherSurfaceLayerVisualTarget(
         offsetPx = 0,
         alpha = if (visible) 1f else 0f,
         scale = if (visible) 1f else 0.96f,
-        blurRadiusDp = if (visible) 0f else 18f,
+        // Glass already filters the wallpaper per tile. Blurring both full-screen glass layers
+        // again during the reveal adds large render targets; retain the fade and scale instead.
+        blurRadiusDp = if (visible || transparentBackground) 0f else 18f,
     )
 }
 

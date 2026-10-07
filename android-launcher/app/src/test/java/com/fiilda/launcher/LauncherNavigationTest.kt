@@ -6,6 +6,32 @@ import org.junit.Test
 
 class LauncherNavigationTest {
     @Test
+    fun wideGlassRevealKeepsFadeAndScaleWithoutFullScreenBlur() {
+        for (page in LauncherPage.entries) {
+            for (layer in LauncherPage.entries) {
+                val glass = launcherSurfaceLayerVisualTarget(
+                    visiblePage = page,
+                    layer = layer,
+                    posture = Posture.INNER_LANDSCAPE,
+                    viewportWidthPx = 2152,
+                    transparentBackground = true,
+                )
+                val opaque = launcherSurfaceLayerVisualTarget(
+                    visiblePage = page,
+                    layer = layer,
+                    posture = Posture.INNER_LANDSCAPE,
+                    viewportWidthPx = 2152,
+                )
+                assertEquals(opaque.offsetPx, glass.offsetPx)
+                assertEquals(opaque.alpha, glass.alpha, 0f)
+                assertEquals(opaque.scale, glass.scale, 0f)
+                assertEquals(0f, glass.blurRadiusDp, 0f)
+                assertEquals(if (page == layer) 0f else 18f, opaque.blurRadiusDp, 0f)
+            }
+        }
+    }
+
+    @Test
     fun failedCanonicalMigrationRemainsRetryableUntilCommitted() {
         assertEquals(
             false,
@@ -461,25 +487,6 @@ class LauncherNavigationTest {
                 visiblePage = LauncherPage.HOME,
                 layer = LauncherPage.HOME,
                 posture = Posture.COVER,
-                viewportWidthPx = 400,
-                transparentBackground = true,
-            ),
-        )
-    }
-
-    @Test
-    fun transparentBackgroundKeepsInnerLandscapeRevealTargetsUnchanged() {
-        assertEquals(
-            LauncherSurfaceLayerVisualTarget(
-                offsetPx = 0,
-                alpha = 0f,
-                scale = 0.96f,
-                blurRadiusDp = 18f,
-            ),
-            launcherSurfaceLayerVisualTarget(
-                visiblePage = LauncherPage.HOME,
-                layer = LauncherPage.DRAWER,
-                posture = Posture.INNER_LANDSCAPE,
                 viewportWidthPx = 400,
                 transparentBackground = true,
             ),

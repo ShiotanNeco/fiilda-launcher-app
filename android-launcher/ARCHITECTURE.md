@@ -56,9 +56,14 @@ coordinator or surface bodies.
 The `:glass` library owns GPU backdrop recording, clipped optical regions, API-specific effects,
 and the pre-glass foreground scene. It does not own launcher navigation, input, or persistence.
 `LauncherGlassHost` retains one content call site across theme changes. Tiles sample the fixed
-wallpaper; the floating navigation surface additionally samples registered sharp foreground
-layers, without capturing other glass effects or duplicating interactive Composables. Native
-View/SurfaceView content can register a fallback color instead of claiming a captured image.
+wallpaper; the floating navigation and fixed drawer search surfaces additionally sample registered sharp foreground
+layers, without capturing other glass effects or duplicating interactive Composables. Foreground
+contributors are registered only while a foreground-sampling control is visible. Wide Home and
+hidden surfaces keep their optical wallpaper sampling without allocating foreground capture
+layers or observing the scene's scroll/transition signal. Wide glass navigation retains the
+centered fade/scale reveal without a second, full-screen blur of the already filtered tiles;
+opaque themes keep their existing reveal blur. Native View/SurfaceView content can register a
+fallback color instead of claiming a captured image.
 
 Wallpaper settings belong to a controller remembered at the `FiiLDATheme` boundary, where the
 photo picker remains registered even while Settings is closed. Its private files and preferences
