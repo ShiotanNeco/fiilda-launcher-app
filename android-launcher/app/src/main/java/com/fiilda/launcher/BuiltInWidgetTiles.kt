@@ -97,7 +97,7 @@ internal fun widgetLanguageFor(theme: LauncherTheme): WidgetLanguage = when (the
     LauncherTheme.CLASSIC -> WidgetLanguage.NISHIKIGOI
     LauncherTheme.WINDOWS_8 -> WidgetLanguage.METRO
     LauncherTheme.MATERIAL -> WidgetLanguage.MATERIAL
-    LauncherTheme.GLASS -> WidgetLanguage.GLASS
+    LauncherTheme.GLASS, LauncherTheme.DARK_GLASS -> WidgetLanguage.GLASS
 }
 
 private class WidgetStyle(

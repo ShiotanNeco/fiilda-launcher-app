@@ -1,6 +1,10 @@
 package com.fiilda.launcher
 
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -109,6 +113,61 @@ class HomeFloatSimulationTest {
         assertEquals(Offset(200f, 300f), state.anchorOnBoard(scrollDeltaPx = -100f))
         state.simulation.remove("bottom")
         assertEquals(Offset(200f, 250f), state.anchorOnBoard(scrollDeltaPx = -50f))
+    }
+
+    @Test
+    fun horizontalScrollUsesTheSameSpringsTurnedSidewaysAndSettlesAfterReversal() {
+        val vertical = HomeFloatSimulation(config)
+        val horizontal = HomeFloatSimulation(config, Orientation.Horizontal)
+        val tileCenters = listOf(Offset(40f, 80f), Offset(-60f, 220f), Offset(100f, 380f))
+        tileCenters.forEachIndexed { index, center ->
+            vertical.place("tile$index", center.x, center.y)
+            horizontal.place("tile$index", center.y, center.x)
+        }
+        repeat(360) { index ->
+            val delta = when {
+                index < 30 -> 25f
+                index < 60 -> -25f
+                else -> 0f
+            }
+            val pulling = index in 60..79
+            vertical.step(frame, delta, Offset.Zero, index < 80, if (pulling) 8f else 0f)
+            horizontal.step(frame, delta, Offset.Zero, index < 80, if (pulling) 8f else 0f)
+            tileCenters.indices.forEach { tile ->
+                val v = vertical.offsetOf("tile$tile")
+                val h = horizontal.offsetOf("tile$tile")
+                assertEquals("same primary spring on frame $index", v.y, h.x, 0.0001f)
+                assertEquals("same cross-axis spring on frame $index", v.x, h.y, 0.0001f)
+            }
+            if (index == 29) {
+                val offset = horizontal.offsetOf("tile2")
+                assertTrue("horizontal movement dominates", offset.x > 3f * kotlin.math.abs(offset.y))
+            }
+        }
+        assertFalse(horizontal.step(frame, 0f, Offset.Zero, scrolling = false))
+        assertEquals(Offset.Zero, horizontal.offsetOf("tile2"))
+    }
+
+    @Test
+    fun horizontalViewportObservesOnlyHorizontalScrollAndEdgeVelocity() = runBlocking {
+        val state = HomeFloatState(config, centersMoveWithScroll = false, scrollOrientation = Orientation.Horizontal)
+        val connection = state.scrollConnection
+        assertEquals(Offset.Zero, connection.onPostScroll(
+            Offset(-24f, 91f), Offset(-8f, 35f), NestedScrollSource.UserInput,
+        ))
+        assertEquals(-24f, state.pendingScroll, 0f)
+        assertEquals(8f, state.pendingEdgePull.floatValue, 0f)
+        assertEquals(Velocity.Zero, connection.onPostFling(Velocity.Zero, Velocity(-1000f, 2000f)))
+        assertEquals(68f, state.pendingEdgePull.floatValue, 0.001f)
+    }
+
+    @Test
+    fun horizontalAnchorFollowsDisposedContentAlongX() {
+        val state = HomeFloatState(config, centersMoveWithScroll = true, scrollOrientation = Orientation.Horizontal)
+        state.simulation.place("tile", 400f, 200f)
+        state.anchorAt(Offset(380f, 210f))
+        state.simulation.remove("tile")
+        assertEquals(Offset(350f, 200f), state.anchorOnBoard(-50f))
     }
 
     @Test

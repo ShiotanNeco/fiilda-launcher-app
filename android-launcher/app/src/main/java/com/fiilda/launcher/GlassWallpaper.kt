@@ -757,10 +757,10 @@ internal fun GlassWallpaper(modifier: Modifier = Modifier) {
     }
 }
 
-/** Settings content is kept under the system Material 3 boundary and only appears for Glass. */
+/** SettingsScreen owns visibility so automatic theme changes cannot blank an open Glass page. */
 @Composable
 internal fun GlassThemeSettings() {
-    if (LocalLauncherTheme.current != LauncherTheme.GLASS) return
+    val theme = LocalLauncherTheme.current.takeIf { it.isGlass } ?: LauncherTheme.GLASS
     val controller = LocalGlassWallpaperController.current ?: return
     val state = controller.state
     var draftAppearance by remember(state.appearance) {
@@ -771,6 +771,7 @@ internal fun GlassThemeSettings() {
         appearance = draftAppearance,
         reduceTransparency = state.reduceTransparency,
         highContrast = rememberHighContrastTextEnabled(),
+        darkGlass = theme == LauncherTheme.DARK_GLASS,
     )
     val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val refractionSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
@@ -835,7 +836,7 @@ internal fun GlassThemeSettings() {
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = tr("ガラス", "Glass"),
+                            text = theme.displayName,
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium,
                         )
@@ -919,7 +920,7 @@ internal fun GlassThemeSettings() {
             style = MaterialTheme.typography.titleMedium,
         )
         Text(
-            text = tr("壁紙の上に重ねるガラスの見え方を調整します", "Adjust how the glass looks over the wallpaper"),
+            text = tr("調整値はガラスとダークガラスで共通です", "Glass and Dark Glass share these settings"),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

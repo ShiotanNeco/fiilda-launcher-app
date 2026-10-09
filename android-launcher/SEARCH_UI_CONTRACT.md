@@ -2,7 +2,7 @@
 
 The drawer owns the query text and presents the search results supplied by
 `rememberDrawerSearchController(query, active, refreshToken)`. Search target management is
-available from the full-screen Settings opened from a long-press action menu, while the drawer
+available from the Search page inside full-screen Settings opened from a long-press action menu, while the drawer
 only presents results. The controller owns all search metadata, permission rechecks, source
 preferences, document targets, and result opening. Query text and history are never persisted. The search field stays fixed at the bottom of the results viewport and above the launcher navigation/system inset or the on-screen keyboard. Leaving the
 drawer for Home or Settings, or leaving the launcher for an app, a search result, or an external

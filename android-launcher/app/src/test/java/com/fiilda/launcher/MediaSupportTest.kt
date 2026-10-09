@@ -7,7 +7,7 @@ import org.junit.Test
 
 class MediaSupportTest {
     @Test
-    fun mediaPerimeterProgressStartsAtTopLeftAndTravelsClockwise() {
+    fun mediaPerimeterProgressStartsAtTopCenterAndTravelsClockwise() {
         val points = mediaPerimeterProgressPoints(
             width = 200f,
             height = 100f,
@@ -17,9 +17,10 @@ class MediaSupportTest {
 
         assertEquals(
             listOf(
-                MediaPerimeterPoint(3f, 3f),
+                MediaPerimeterPoint(100f, 3f),
                 MediaPerimeterPoint(197f, 3f),
                 MediaPerimeterPoint(197f, 97f),
+                MediaPerimeterPoint(100f, 97f),
             ),
             points,
         )
@@ -32,10 +33,11 @@ class MediaSupportTest {
         val full = mediaPerimeterProgressPoints(100f, 100f, 3f, 1f)
         assertEquals(
             listOf(
-                MediaPerimeterPoint(3f, 3f),
+                MediaPerimeterPoint(50f, 3f),
                 MediaPerimeterPoint(97f, 3f),
                 MediaPerimeterPoint(97f, 97f),
                 MediaPerimeterPoint(3f, 97f),
+                MediaPerimeterPoint(3f, 3f),
             ),
             full,
         )
@@ -52,9 +54,8 @@ class MediaSupportTest {
             cornerRadius = 20f,
         )
 
-        // A rounded path starts at the top-left tangent, so the sharp outer corner is never
-        // replayed into the GLASS tile's progress stroke.
-        assertEquals(MediaPerimeterPoint(23f, 3f), rounded.first())
+        // Start at 12 o'clock while keeping the rounded GLASS stroke off the sharp tile corner.
+        assertEquals(MediaPerimeterPoint(50f, 3f), rounded.first())
         assertFalse(rounded.contains(MediaPerimeterPoint(3f, 3f)))
         assertEquals(
             mediaPerimeterProgressPoints(100f, 100f, 3f, 0.5f),

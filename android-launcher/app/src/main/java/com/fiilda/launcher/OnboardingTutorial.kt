@@ -410,6 +410,7 @@ private fun MiniThemes() {
         LauncherTheme.WINDOWS_8 to (Color(0xFF001A33) to Color(0xFF00A4EF)),
         LauncherTheme.MATERIAL to (Color(0xFF1B1B21) to Color(0xFFB8C3FF)),
         LauncherTheme.GLASS to (Color(0xFF4F6470) to Color.White),
+        LauncherTheme.DARK_GLASS to (Color(0xFF17191D) to Color.White),
     )
     val palette = LocalLauncherPalette.current
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {

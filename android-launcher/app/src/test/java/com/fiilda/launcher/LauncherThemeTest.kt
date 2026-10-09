@@ -15,6 +15,26 @@ import java.util.concurrent.TimeUnit
 
 class LauncherThemeTest {
     @Test
+    fun darkGlassIsSelectableAndRetainsTheSharedGlassWidgetAndRotationBehavior() {
+        assertEquals("ダークガラス", LauncherTheme.DARK_GLASS.displayName)
+        assertEquals("dark_glass", serializeLauncherThemeToken(LauncherTheme.DARK_GLASS))
+        assertEquals(LauncherTheme.DARK_GLASS, parseLauncherThemeToken(" DARK_GLASS "))
+        assertEquals(
+            setOf(LauncherTheme.GLASS, LauncherTheme.DARK_GLASS),
+            LauncherTheme.entries.filter { it.isGlass }.toSet(),
+        )
+        assertEquals(WidgetLanguage.GLASS, widgetLanguageFor(LauncherTheme.DARK_GLASS))
+        val themes = setOf(LauncherTheme.GLASS, LauncherTheme.DARK_GLASS)
+        assertEquals(LauncherTheme.DARK_GLASS, nextThemeInRotation(LauncherTheme.GLASS, themes))
+        assertEquals(LauncherTheme.GLASS, nextThemeInRotation(LauncherTheme.DARK_GLASS, themes))
+        val palette = launcherPaletteFor(LauncherTheme.DARK_GLASS)
+        assertEquals(Color.Transparent, palette.background)
+        assertEquals(Color.Black.copy(alpha = 0.40f), palette.surface)
+        assertEquals(Color.White, palette.ink)
+        assertFalse(palette.isLight)
+    }
+
+    @Test
     fun themeTokensRoundTripAndUnknownValuesFallBackToDefault() {
         assertEquals(LauncherTheme.DEFAULT, parseLauncherThemeToken(null))
         assertEquals(LauncherTheme.DEFAULT, parseLauncherThemeToken(""))

@@ -9,6 +9,20 @@ import org.junit.Test
 
 class GlassAppearanceTest {
     @Test
+    fun darkGlassSharesOpticsAndAccessibilityAtEveryTintStrength() {
+        for (tint in listOf(0f, 0.37f, 1f)) {
+            val appearance = GlassAppearance(18f, 24f, tint)
+            val regular = launcherGlassStyle(appearance, reduceTransparency = true, highContrast = true)
+            val dark = launcherGlassStyle(
+                appearance, reduceTransparency = true, highContrast = true, darkGlass = true,
+            )
+            assertEquals(Color.Black, dark.tint)
+            assertEquals(Color.Black.copy(alpha = 0.40f), dark.baseTint)
+            assertEquals(regular, dark.copy(tint = Color.White, baseTint = Color.Transparent))
+        }
+    }
+
+    @Test
     fun defaultsCreateTheExistingClearMaterial() {
         val style = launcherGlassStyle(GlassAppearance())
 

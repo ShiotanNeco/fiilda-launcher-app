@@ -67,6 +67,14 @@ internal fun defaultWidgetPaddingForProvider(
     AppWidgetHostView.getDefaultPaddingForWidget(context, provider, Rect())
 }.getOrDefault(Rect())
 
+// Some OEMs reserve extra bottom padding for launcher labels. Our tile has no label below
+// the provider, so balance the vertical padding while preserving its negotiated content size.
+internal fun centeredWidgetHostPadding(padding: Rect): Rect {
+    val vertical = padding.top + padding.bottom
+    val top = vertical / 2
+    return Rect(padding.left, top, padding.right, vertical - top)
+}
+
 // These metadata fields were added in API 31. Keep every access behind one SDK-gated helper so
 // Compose remember keys and picker code remain safe on the launcher's API 29/30 minimum devices.
 internal fun widgetTargetCellWidth(info: AppWidgetProviderInfo): Int =

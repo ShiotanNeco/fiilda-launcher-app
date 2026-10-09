@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -467,7 +466,6 @@ private fun DrawerSearchSourceRow(
 ) {
     val icon = when (source.source) {
         DeviceSearchSource.CONTACTS -> Icons.Filled.Person
-        DeviceSearchSource.VISUAL_MEDIA -> Icons.Filled.PhotoLibrary
         DeviceSearchSource.AUDIO -> Icons.Filled.MusicNote
     }
     val statusLabel = source.displayStatusMessage()
@@ -615,7 +613,7 @@ private fun shouldShowDocumentStatus(state: DrawerSearchUiState): Boolean =
 
 private fun fileSearchStatuses(state: DrawerSearchUiState): List<SearchSourceStatus> {
     val sourceStatuses = state.sourceStates
-        .filter { it.source == DeviceSearchSource.VISUAL_MEDIA || it.source == DeviceSearchSource.AUDIO }
+        .filter { it.source == DeviceSearchSource.AUDIO }
         .map { it.status }
     // A persisted SAF target is a file-search source too. The default NO_RESULTS state with no
     // targets means that the document source is not configured yet, so it should not make the
@@ -649,7 +647,7 @@ internal fun aggregateDrawerFileSearchStatus(state: DrawerSearchUiState): Search
 internal fun aggregateDrawerFileSearchMessage(state: DrawerSearchUiState): String? {
     val hasResults = state.files.isNotEmpty()
     val sourceMessages = state.sourceStates
-        .filter { it.source == DeviceSearchSource.VISUAL_MEDIA || it.source == DeviceSearchSource.AUDIO }
+        .filter { it.source == DeviceSearchSource.AUDIO }
         .mapNotNull { source ->
             source.displayStatusMessage()
                 .takeIf { it !in setOf(tr("オフ", "Off"), tr("検索可能", "Ready")) }

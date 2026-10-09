@@ -82,6 +82,7 @@ data class GlassStyle(
     val dark: Boolean = false,
     val reduceTransparency: Boolean = false,
     val highContrast: Boolean = false,
+    val baseTint: Color = Color.Transparent,
 )
 
 /** A single wallpaper display list shared by all surfaces in a Compose root. */
@@ -377,6 +378,15 @@ fun Modifier.glassSurface(
                 null
             }
             sampledLayer.renderEffect = effect
+            val bitmapShader = preBlurred?.let {
+                android.graphics.BitmapShader(
+                    it.asAndroidBitmap(),
+                    android.graphics.Shader.TileMode.CLAMP,
+                    android.graphics.Shader.TileMode.CLAMP,
+                )
+            }
+            val sourceMatrix = Matrix()
+            val localMatrix = android.graphics.Matrix()
 
             val corner = CornerRadius(parameters.cornerPx)
             val sampleClipPath = Path().apply {
@@ -428,6 +438,7 @@ fun Modifier.glassSurface(
                 val sourceRevision = backdrop.drawRevision.intValue
                 @Suppress("UNUSED_VARIABLE")
                 val sceneRevision = scene?.drawRevision?.intValue
+                scene?.observeGeometry()
                 @Suppress("UNUSED_VARIABLE")
                 val geometryTick = resolveGlassGeometry(geometryVersionState.value)
                 val hardware = drawContext.canvas.nativeCanvas.isHardwareAccelerated
@@ -439,7 +450,9 @@ fun Modifier.glassSurface(
                     // Sample the shared pre-blurred backdrop directly with the refraction shader:
                     // no per-surface offscreen layer, so each surface is a single draw.
                     drawPreBlurredBackdrop(
-                        image = preBlurred,
+                        bitmapShader = bitmapShader!!,
+                        sourceMatrix = sourceMatrix,
+                        localMatrix = localMatrix,
                         paint = directPaint,
                         backdrop = backdrop,
                         destination = surfaceCoordinates,
@@ -449,6 +462,7 @@ fun Modifier.glassSurface(
                         refractionPx = parameters.refractionPx,
                         saturation = if (style.variant == GlassVariant.Clear) 1.04f else 1.13f,
                     )
+                    drawRoundRect(style.baseTint, cornerRadius = corner)
                     drawRoundRect(tint.copy(alpha = parameters.tintAlpha), cornerRadius = corner)
                     drawRoundRect(sheen, cornerRadius = corner)
                 } else if (size.width > 0f && size.height > 0f) {
@@ -475,6 +489,7 @@ fun Modifier.glassSurface(
                     clipPath(sampleClipPath) {
                         translate(-padding, -padding) { drawLayer(sampledLayer) }
                     }
+                    drawRoundRect(style.baseTint, cornerRadius = corner)
                     drawRoundRect(tint.copy(alpha = parameters.tintAlpha), cornerRadius = corner)
                     drawRoundRect(sheen, cornerRadius = corner)
                 }
@@ -527,8 +542,9 @@ private fun backdropToSurfaceMatrix(
     backdrop: GlassBackdropState,
     destination: LayoutCoordinates?,
     surfacePosition: Offset,
+    matrix: Matrix,
 ): Matrix {
-    val matrix = Matrix()
+    matrix.reset()
     val source = backdrop.coordinates
     if (source != null && destination != null && source.isAttached && destination.isAttached &&
         runCatching { destination.transformFrom(source, matrix) }.isSuccess
@@ -542,7 +558,9 @@ private fun backdropToSurfaceMatrix(
 }
 
 private fun DrawScope.drawPreBlurredBackdrop(
-    image: ImageBitmap,
+    bitmapShader: android.graphics.BitmapShader,
+    sourceMatrix: Matrix,
+    localMatrix: android.graphics.Matrix,
     paint: android.graphics.Paint,
     backdrop: GlassBackdropState,
     destination: LayoutCoordinates?,
@@ -552,14 +570,8 @@ private fun DrawScope.drawPreBlurredBackdrop(
     refractionPx: Float,
     saturation: Float,
 ) {
-    val localMatrix = android.graphics.Matrix().apply {
-        setFrom(backdropToSurfaceMatrix(backdrop, destination, surfacePosition))
-    }
-    val bitmapShader = android.graphics.BitmapShader(
-        image.asAndroidBitmap(),
-        android.graphics.Shader.TileMode.CLAMP,
-        android.graphics.Shader.TileMode.CLAMP,
-    ).apply { setLocalMatrix(localMatrix) }
+    localMatrix.setFrom(backdropToSurfaceMatrix(backdrop, destination, surfacePosition, sourceMatrix))
+    bitmapShader.setLocalMatrix(localMatrix)
     paint.shader = GlassPlatformEffects.refractedShader(
         shader = shader,
         input = bitmapShader,

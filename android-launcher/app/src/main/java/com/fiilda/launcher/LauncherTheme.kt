@@ -58,7 +58,16 @@ internal enum class LauncherTheme(
         "青灰色の壁紙を使った、読みやすい白文字のガラス風配色",
         "Glass-like surfaces with readable white text over a blue-grey wallpaper",
     ),
+    DARK_GLASS(
+        "dark_glass",
+        "ダークガラス",
+        "Dark Glass",
+        "黒いガラスと白文字。ガラスの調整値は通常のガラスと共通",
+        "Black glass with white text. Shares its glass settings with Glass",
+    ),
     ;
+
+    val isGlass: Boolean get() = this == GLASS || this == DARK_GLASS
 
     val displayName: String get() = tr(jaName, enName)
     val description: String get() = tr(jaDescription, enDescription)
@@ -199,6 +208,15 @@ private val GlassLauncherPalette = LauncherPalette(
     accent = Color.White,
     accentOn = Color.Black,
     isLight = false,
+)
+
+private val DarkGlassLauncherPalette = GlassLauncherPalette.copy(
+    deep = Color.Black.copy(alpha = 0.40f),
+    surface = Color.Black.copy(alpha = 0.40f),
+    selectedSurface = Color.Black.copy(alpha = 0.30f),
+    enabledSurface = Color.Black.copy(alpha = 0.34f),
+    accentSurface = Color.Black.copy(alpha = 0.28f),
+    photoFrameSurface = Color.Black.copy(alpha = 0.40f),
 )
 
 /** Fixed built-in surfaces keep live tiles visually distinct while remaining recognizably Metro. */
@@ -444,6 +462,7 @@ internal fun launcherPaletteFor(theme: LauncherTheme): LauncherPalette = when (t
     LauncherTheme.CLASSIC -> ClassicLauncherPalette
     LauncherTheme.WINDOWS_8 -> Windows8LauncherPalette
     LauncherTheme.GLASS -> GlassLauncherPalette
+    LauncherTheme.DARK_GLASS -> DarkGlassLauncherPalette
     // A resolved Material scheme is selected at the composition boundary. Keep this overload
     // total for persistence/tests and provide a deterministic Material fallback for callers that
     // do not have a Context (the runtime path never uses this branch).
@@ -461,6 +480,7 @@ internal fun parseLauncherThemeToken(raw: String?): LauncherTheme = when (
     LauncherTheme.WINDOWS_8.token -> LauncherTheme.WINDOWS_8
     LauncherTheme.MATERIAL.token -> LauncherTheme.MATERIAL
     LauncherTheme.GLASS.token -> LauncherTheme.GLASS
+    LauncherTheme.DARK_GLASS.token -> LauncherTheme.DARK_GLASS
     else -> LauncherTheme.DEFAULT
 }
 

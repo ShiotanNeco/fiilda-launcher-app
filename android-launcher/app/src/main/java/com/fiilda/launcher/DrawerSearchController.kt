@@ -109,33 +109,15 @@ internal class AndroidDrawerSearchPermissionGateway(
         if (state.access == DrawerSearchPermissionAccess.FULL) {
             return
         }
-        val missing = if (source == DeviceSearchSource.VISUAL_MEDIA &&
-            Build.VERSION.SDK_INT >= 34 &&
-            state.access == DrawerSearchPermissionAccess.PARTIAL
-        ) {
-            // Android 14's selected-media grant is upgradeable. Request the complete visual set
-            // so the system can show its selection-management affordance.
-            drawerSearchPermissionsFor(source, Build.VERSION.SDK_INT)
-        } else {
-            state.requiredPermissions.filterNot {
-                context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
-            }
+        val missing = state.requiredPermissions.filterNot {
+            context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
             return
         }
         val permanentlyDenied = source in requestAttempted &&
             activity != null &&
-            missing.all { !activity.shouldShowRequestPermissionRationale(it) } &&
-            (
-                state.access == DrawerSearchPermissionAccess.NONE ||
-                    // API 33 can leave visual access partial when one media type is permanently
-                    // denied. Route that state to settings instead of looping the same dialog.
-                    (state.access == DrawerSearchPermissionAccess.PARTIAL && Build.VERSION.SDK_INT == 33)
-                ) &&
-            // Android 14 selected-media access needs a fresh full visual request even when the
-            // platform reports no rationale for the underlying media permissions.
-            !(source == DeviceSearchSource.VISUAL_MEDIA && Build.VERSION.SDK_INT >= 34)
+            missing.all { !activity.shouldShowRequestPermissionRationale(it) }
         if (permanentlyDenied) {
             openApplicationSettings()
             return
@@ -248,7 +230,6 @@ internal class AndroidDrawerSearchSourceReader(
         signal: CancellationSignal,
     ): List<SearchResult> = when (source) {
         DeviceSearchSource.CONTACTS -> queryContacts(signal)
-        DeviceSearchSource.VISUAL_MEDIA -> queryVisualMedia(signal)
         DeviceSearchSource.AUDIO -> queryAudio(signal)
     }
 
@@ -284,48 +265,6 @@ internal class AndroidDrawerSearchSourceReader(
                         contactId.toLongOrNull() ?: continue,
                     ).toString(),
                     source = DeviceSearchSource.CONTACTS,
-                )
-            }
-        }
-        return result
-    }
-
-    private fun queryVisualMedia(signal: CancellationSignal): List<SearchResult> {
-        val collection = MediaStore.Files.getContentUri("external")
-        val projection = arrayOf(
-            MediaStore.Files.FileColumns._ID,
-            MediaStore.Files.FileColumns.DISPLAY_NAME,
-            MediaStore.Files.FileColumns.MIME_TYPE,
-            MediaStore.Files.FileColumns.MEDIA_TYPE,
-        )
-        val result = mutableListOf<SearchResult>()
-        resolver.query(
-            collection,
-            projection,
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)",
-            arrayOf(
-                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
-                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString(),
-            ),
-            MediaStore.Files.FileColumns.DISPLAY_NAME + " ASC",
-            signal,
-        )?.use { cursor ->
-            val idIndex = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
-            val nameIndex = cursor.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
-            val mimeIndex = cursor.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
-            while (cursor.moveToNext()) {
-                signal.throwIfCanceled()
-                val id = cursor.getLongOrNull(idIndex) ?: continue
-                val name = cursor.getStringOrNull(nameIndex).orEmpty().trim()
-                if (name.isBlank()) continue
-                val mime = cursor.getStringOrNull(mimeIndex)
-                result += SearchResult(
-                    id = "media:$id",
-                    label = name,
-                    uri = ContentUris.withAppendedId(collection, id).toString(),
-                    mimeType = mime,
-                    subtitle = mime,
-                    source = DeviceSearchSource.VISUAL_MEDIA,
                 )
             }
         }
@@ -1001,11 +940,7 @@ internal class AndroidDrawerSearchController(
         setSourceState(source) {
             it.copy(
                 status = SearchSourceStatus.LOADING,
-                statusMessage = if (permission.access == DrawerSearchPermissionAccess.PARTIAL) {
-                    tr("選択された項目を検索中", "Searching selected items")
-                } else {
-                    tr("検索中", "Searching")
-                },
+                statusMessage = tr("検索中", "Searching"),
                 actionLabel = null,
                 errorMessage = null,
             )
@@ -1034,21 +969,20 @@ internal class AndroidDrawerSearchController(
                         return@withContext
                     }
                     sourceResults[source] = ranked
-                    val finalStatus = when {
-                        latestPermission.access == DrawerSearchPermissionAccess.PARTIAL ->
-                            SearchSourceStatus.PARTIAL
-                        ranked.isEmpty() -> SearchSourceStatus.NO_RESULTS
-                        else -> SearchSourceStatus.READY
+                    val finalStatus = if (ranked.isEmpty()) {
+                        SearchSourceStatus.NO_RESULTS
+                    } else {
+                        SearchSourceStatus.READY
                     }
                     setSourceState(source) {
                         it.copy(
                             status = finalStatus,
-                            statusMessage = when (finalStatus) {
-                                SearchSourceStatus.PARTIAL -> tr("一部の項目だけ表示しています", "Showing some items only")
-                                SearchSourceStatus.NO_RESULTS -> tr("一致する項目はありません", "No matches")
-                                else -> null
+                            statusMessage = if (finalStatus == SearchSourceStatus.NO_RESULTS) {
+                                tr("一致する項目はありません", "No matches")
+                            } else {
+                                null
                             },
-                            actionLabel = if (finalStatus == SearchSourceStatus.PARTIAL) tr("アクセスを管理", "Manage access") else null,
+                            actionLabel = null,
                             errorMessage = null,
                         )
                     }
@@ -1224,15 +1158,9 @@ internal class AndroidDrawerSearchController(
             statusMessage = when (status) {
                 SearchSourceStatus.DISABLED -> null
                 SearchSourceStatus.DENIED -> tr("アクセスを許可すると検索できます", "Allow access to search")
-                SearchSourceStatus.PARTIAL -> tr("選択された項目だけ検索します", "Searches selected items only")
                 else -> null
             },
-            actionLabel = when (status) {
-                SearchSourceStatus.DENIED,
-                SearchSourceStatus.PARTIAL,
-                -> tr("アクセスを管理", "Manage access")
-                else -> null
-            },
+            actionLabel = if (status == SearchSourceStatus.DENIED) tr("アクセスを管理", "Manage access") else null,
         )
     }
 
@@ -1240,8 +1168,7 @@ internal class AndroidDrawerSearchController(
         val contacts = sourceResults[DeviceSearchSource.CONTACTS].orEmpty()
         val files = rankDrawerSearchValues(
             normalizedQuery,
-            sourceResults[DeviceSearchSource.VISUAL_MEDIA].orEmpty() +
-                sourceResults[DeviceSearchSource.AUDIO].orEmpty() +
+            sourceResults[DeviceSearchSource.AUDIO].orEmpty() +
                 documentResults,
         ) { it.label }
         mutableUiState = mutableUiState.copy(contacts = contacts, files = files)

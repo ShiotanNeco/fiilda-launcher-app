@@ -796,7 +796,7 @@ internal fun ExternalWidgetTile(
                             // phone-size assumption.  The host view also receives the same options so
                             // providers can re-layout their remote views for the current posture.
                             val currentPadding = info.provider?.let { provider ->
-                                defaultWidgetPaddingForProvider(context, provider)
+                                centeredWidgetHostPadding(defaultWidgetPaddingForProvider(context, provider))
                             } ?: Rect()
                             if (view is LauncherAppWidgetHostView) {
                                 view.updateAppWidgetSizeIfNeeded(
@@ -1086,8 +1086,8 @@ internal data class MediaPerimeterPoint(
 
 /**
  * Returns the visible portion of a clockwise perimeter path. The path starts at the inner
- * top-left corner and proceeds across the top, down the right, across the bottom, then up the
- * left. A complete path omits the duplicate closing point; callers close it explicitly so the
+ * top-center (12 o'clock) and proceeds across the top, down the right, across the bottom, then up
+ * the left. A complete path omits the duplicate closing point; callers close it explicitly so the
  * final corner remains joined at 100%.
  */
 internal fun mediaPerimeterProgressPoints(
@@ -1103,12 +1103,14 @@ internal fun mediaPerimeterProgressPoints(
     val top = safeInset.coerceAtMost(safeHeight / 2f)
     val right = (safeWidth - safeInset).coerceAtLeast(left)
     val bottom = (safeHeight - safeInset).coerceAtLeast(top)
+    val topCenter = (left + right) / 2f
     val corners = listOf(
-        MediaPerimeterPoint(left, top),
+        MediaPerimeterPoint(topCenter, top),
         MediaPerimeterPoint(right, top),
         MediaPerimeterPoint(right, bottom),
         MediaPerimeterPoint(left, bottom),
         MediaPerimeterPoint(left, top),
+        MediaPerimeterPoint(topCenter, top),
     )
     val lengths = corners.zipWithNext { from, to ->
         kotlin.math.abs(to.x - from.x) + kotlin.math.abs(to.y - from.y)
@@ -1160,6 +1162,7 @@ internal fun mediaRoundedPerimeterProgressPoints(
     }
 
     val points = mutableListOf<MediaPerimeterPoint>()
+    val topCenter = MediaPerimeterPoint((left + right) / 2f, top)
     fun addArc(centerX: Float, centerY: Float, startDegrees: Float, sweepDegrees: Float) {
         val samples = 8
         repeat(samples + 1) { index ->
@@ -1175,7 +1178,7 @@ internal fun mediaRoundedPerimeterProgressPoints(
         }
     }
 
-    points += MediaPerimeterPoint(left + radius, top)
+    points += topCenter
     points += MediaPerimeterPoint(right - radius, top)
     addArc(right - radius, top + radius, -90f, 90f)
     points += MediaPerimeterPoint(right, bottom - radius)
@@ -1184,6 +1187,7 @@ internal fun mediaRoundedPerimeterProgressPoints(
     addArc(left + radius, bottom - radius, 90f, 90f)
     points += MediaPerimeterPoint(left, top + radius)
     addArc(left + radius, top + radius, 180f, 90f)
+    points += topCenter
     points += points.first()
 
     return progressPointsOnPolyline(points, progress)

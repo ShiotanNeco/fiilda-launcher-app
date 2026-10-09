@@ -18,6 +18,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
@@ -67,7 +68,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -534,6 +534,9 @@ private fun StartCanvas(
         initialFirstVisibleItemIndex = initialHomePosition.itemIndex,
         initialFirstVisibleItemScrollOffset = initialHomePosition.itemOffsetPx,
     )
+    val homeFloat = rememberHomeFloatState(scrollOrientation = Orientation.Horizontal) {
+        rowState.isScrollInProgress
+    }
     var initialHomePositionRestored by remember { mutableStateOf(false) }
     LaunchedEffect(order.isNotEmpty()) {
         if (!initialHomePositionRestored && order.isNotEmpty()) {
@@ -785,10 +788,12 @@ private fun StartCanvas(
         )
         LazyRow(
             state = rowState,
-            modifier = Modifier.fillMaxSize().clipToBounds(),
-            // This is a LazyRow viewport inset rather than an inter-cell gap, but it stays on
-            // the same baseline so the canvas edge aligns with the shared home-grid spacing.
-            contentPadding = PaddingValues(horizontal = HomeGridGapDp.dp),
+            modifier = Modifier.fillMaxSize().homeFloatViewport(homeFloat).extendIntoSideMargin(),
+            // Widen only the drawing viewport; matching padding keeps tile positions and the
+            // scroll range unchanged while animated tiles can enter the existing side margins.
+            contentPadding = PaddingValues(horizontal = with(density) {
+                (gap.roundToPx() + LauncherHorizontalMargin.roundToPx()).toDp()
+            }),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -796,13 +801,17 @@ private fun StartCanvas(
             // posture change. This prevents LazyRow reuse from carrying a narrow board's gesture
             // routing into the wide presentation.
             item(key = "start-home-canvas") {
-                Box(Modifier.width(homeCanvasWidth).fillMaxHeight().clipToBounds()) {
+                Box(Modifier.width(homeCanvasWidth).fillMaxHeight()) {
                     LauncherGlassSceneScope(
                         enabled = homeCanvasItemVisible,
                         geometryVersion = if (LocalLauncherGlass.current.enabled) {
-                            remember(rowState) {
+                            remember(rowState, homeFloat) {
                                 GlassGeometrySignal {
-                                    rowState.firstVisibleItemIndex to rowState.firstVisibleItemScrollOffset
+                                    listOf(
+                                        rowState.firstVisibleItemIndex,
+                                        rowState.firstVisibleItemScrollOffset,
+                                        homeFloat?.frame?.intValue,
+                                    )
                                 }
                             }
                         } else {
@@ -849,6 +858,7 @@ private fun StartCanvas(
                         homeDragCoordinator = homeDragCoordinator,
                         edgeDragReevaluation = edgeDragReevaluation,
                         horizontalVisibleColumnWindow = visibleCanvasColumnWindow,
+                        homeFloat = homeFloat,
                         onPreviewOrder = onPreviewOrder,
                         onCommitOrder = onCommitOrder,
                         onCancelOrder = onCancelOrder,

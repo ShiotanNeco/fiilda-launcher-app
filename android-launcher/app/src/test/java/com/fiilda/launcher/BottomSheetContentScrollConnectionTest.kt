@@ -7,12 +7,12 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-class WidgetPickerScrollConnectionTest {
+class BottomSheetContentScrollConnectionTest {
     @Test
     fun flingLeftAtEitherListEdgeDoesNotReachTheSheet() = runBlocking {
         for (speed in listOf(-18000f, -500f, 0f, 500f, 18000f)) {
             val available = Velocity(120f, speed)
-            val taken = WidgetPickerScrollConnection.onPostFling(Velocity(0f, -2000f), available)
+            val taken = BottomSheetContentScrollConnection.onPostFling(Velocity(0f, -2000f), available)
             assertEquals(0f, (available - taken).y, 0f)
             assertEquals(120f, (available - taken).x, 0f)
         }
@@ -21,8 +21,8 @@ class WidgetPickerScrollConnectionTest {
     @Test
     fun fingerPullAndInitialFlingStillReachTheSheet() = runBlocking {
         val pull = Offset(0f, 80f)
-        assertEquals(Offset.Zero, WidgetPickerScrollConnection.onPreScroll(pull, NestedScrollSource.UserInput))
-        assertEquals(Offset.Zero, WidgetPickerScrollConnection.onPostScroll(Offset.Zero, pull, NestedScrollSource.UserInput))
-        assertEquals(Velocity.Zero, WidgetPickerScrollConnection.onPreFling(Velocity(0f, 3000f)))
+        assertEquals(Offset.Zero, BottomSheetContentScrollConnection.onPreScroll(pull, NestedScrollSource.UserInput))
+        assertEquals(Offset.Zero, BottomSheetContentScrollConnection.onPostScroll(Offset.Zero, pull, NestedScrollSource.UserInput))
+        assertEquals(Velocity.Zero, BottomSheetContentScrollConnection.onPreFling(Velocity(0f, 3000f)))
     }
 }

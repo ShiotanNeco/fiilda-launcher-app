@@ -971,7 +971,6 @@ private fun FolderTileGrid(
     modifier: Modifier,
 ) {
     val palette = LocalLauncherPalette.current
-    val glassEnabled = LocalLauncherGlass.current.enabled
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -991,16 +990,6 @@ private fun FolderTileGrid(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxSize()
-                            .then(
-                                if (glassEnabled) {
-                                    // The folder tile already owns one optical surface. Keep its
-                                    // preview cells transparent and use only a fine neutral
-                                    // divider so the wallpaper and icons remain visible through it.
-                                    Modifier.launcherBorder(0.5.dp, FiiLDALineStrong)
-                                } else {
-                                    Modifier.background(if (app == null) palette.deep else palette.accentSurface)
-                                },
-                            )
                             .then(
                                 if (expandCell) {
                                     Modifier

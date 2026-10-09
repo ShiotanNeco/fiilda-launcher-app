@@ -1,0 +1,13 @@
+<!-- Google Material Symbols Outlined, Apache-2.0. Compose supplies the tint.
+     Source: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/android/chevron_right/materialsymbolsoutlined/chevron_right_24px.xml -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960"
+
+    android:autoMirrored="true">
+  <path
+      android:fillColor="@android:color/white"
+      android:pathData="M504,480L320,296L376,240L616,480L376,720L320,664L504,480Z"/>
+</vector>

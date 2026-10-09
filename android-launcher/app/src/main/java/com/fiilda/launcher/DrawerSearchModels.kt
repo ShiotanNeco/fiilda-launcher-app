@@ -8,7 +8,6 @@ internal enum class DeviceSearchSource(
     private val enLabel: String,
 ) {
     CONTACTS("連絡先", "Contacts"),
-    VISUAL_MEDIA("写真・動画", "Photos and videos"),
     AUDIO("音楽", "Music"),
     ;
 
@@ -115,10 +114,6 @@ internal data class DrawerSearchUiState(
 ) {
     val contactsStatus: SearchSourceStatus
         get() = sources.firstOrNull { it.source == DeviceSearchSource.CONTACTS }
-            ?.status ?: SearchSourceStatus.DISABLED
-
-    val visualMediaStatus: SearchSourceStatus
-        get() = sources.firstOrNull { it.source == DeviceSearchSource.VISUAL_MEDIA }
             ?.status ?: SearchSourceStatus.DISABLED
 
     val audioStatus: SearchSourceStatus

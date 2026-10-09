@@ -25,7 +25,7 @@ internal enum class ThemeRotationInterval(val millis: Long, private val jaLabel:
     val label: String get() = tr(jaLabel, enLabel)
 }
 
-private const val ThemeRotationEnabledKey = "theme_rotation_enabled"
+internal const val ThemeRotationEnabledKey = "theme_rotation_enabled"
 private const val ThemeRotationIntervalKey = "theme_rotation_interval_millis"
 private const val ThemeRotationThemesKey = "theme_rotation_themes"
 private const val ThemeRotationRequestCode = 8314
@@ -54,9 +54,15 @@ internal fun saveThemeRotationConfig(context: Context, config: ThemeRotationConf
     if (config.themes.size < 2 || config.themes.any { it !in LauncherTheme.values() }) return false
     if (ThemeRotationInterval.values().none { it.millis == config.intervalMillis }) return false
     return runCatching {
-        context.getSharedPreferences(LauncherThemePreferencesName, Context.MODE_PRIVATE)
+        val editor = context.getSharedPreferences(LauncherThemePreferencesName, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean(ThemeRotationEnabledKey, config.enabled)
+        if (config.enabled) {
+            if (readSystemThemeConfig(context).enabled) {
+                editor.putString(LauncherThemePreferenceKey, currentSystemTheme(context).token)
+            }
+            editor.putBoolean(SystemThemeEnabledKey, false)
+        }
+        editor.putBoolean(ThemeRotationEnabledKey, config.enabled)
             .putLong(ThemeRotationIntervalKey, config.intervalMillis)
             .putStringSet(ThemeRotationThemesKey, config.themes.map { it.token }.toSet())
             .commit()
@@ -80,7 +86,7 @@ internal object ThemeRotationScheduler {
                 ?: return@runCatching false
             val pendingIntent = rotationPendingIntent(context, PendingIntent.FLAG_UPDATE_CURRENT)
                 ?: return@runCatching false
-            if (!config.enabled || config.themes.size < 2) {
+            if (!config.enabled || readSystemThemeConfig(context).enabled || config.themes.size < 2) {
                 alarmManager.cancel(pendingIntent)
                 pendingIntent.cancel()
                 return@runCatching true
@@ -120,7 +126,7 @@ class ThemeRotationReceiver : BroadcastReceiver() {
         if (intent?.action != ThemeRotationAction) return
 
         val config = readThemeRotationConfig(appContext)
-        if (!config.enabled || config.themes.size < 2) {
+        if (!config.enabled || readSystemThemeConfig(appContext).enabled || config.themes.size < 2) {
             ThemeRotationScheduler.cancel(appContext)
             return
         }

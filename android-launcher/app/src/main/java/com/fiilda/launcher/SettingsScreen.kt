@@ -1,7 +1,11 @@
 package com.fiilda.launcher
 
+import androidx.activity.compose.BackHandler
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.Context
+import android.content.SharedPreferences
+import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
@@ -33,9 +37,6 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -50,9 +51,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -60,6 +64,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -70,8 +75,42 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 
-/** A section is intentionally just a title and rows, so new settings can be added locally. */
+private enum class SettingsPage(val icon: Int) {
+    SEARCH(R.drawable.ms_search),
+    DISPLAY(R.drawable.ms_display_settings),
+    THEME(R.drawable.ms_palette),
+    ROTATION(R.drawable.ms_autorenew),
+    NOTIFICATIONS(R.drawable.ms_notifications),
+    GLASS(R.drawable.ms_blur_on),
+    DEVICE(R.drawable.ms_smartphone),
+    ABOUT(R.drawable.ms_info);
+
+    val title: String get() = when (this) {
+        SEARCH -> tr("検索", "Search")
+        DISPLAY -> tr("表示", "Display")
+        THEME -> tr("テーマ", "Theme")
+        ROTATION -> tr("テーマローテーション", "Theme rotation")
+        NOTIFICATIONS -> tr("通知", "Notifications")
+        GLASS -> tr("ガラス", "Glass")
+        DEVICE -> tr("端末の設定", "Device settings")
+        ABOUT -> tr("ランチャー情報", "About")
+    }
+
+    val summary: String get() = when (this) {
+        SEARCH -> tr("検索対象・ファイルとフォルダ", "Search sources, files and folders")
+        DISPLAY -> tr("アプリ名・横スクロールの配置・アニメーション", "App names, sideways layout and animation")
+        THEME -> tr("テーマの選択・システムの明暗との連動", "Theme selection and system light/dark mode")
+        ROTATION -> tr("切替間隔・自動で切り替えるテーマ", "Timing and themes to cycle through")
+        NOTIFICATIONS -> tr("通知件数バッジ・通知へのアクセス", "Notification badges and access")
+        GLASS -> tr("壁紙・透明度", "Wallpaper and transparency")
+        DEVICE -> tr("ホームアプリの選択", "Choose your Home app")
+        ABOUT -> tr("バージョン・使い方", "Version and introduction")
+    }
+}
+
+/** Each category can contain multiple related groups without sharing a scroll position. */
 private data class SettingsSection(
+    val page: SettingsPage,
     val title: String,
     val rows: List<SettingsRow> = emptyList(),
     val content: (@Composable () -> Unit)? = null,
@@ -88,6 +127,8 @@ private data class SettingsRow(
     val onValueChange: ((Boolean) -> Unit)? = null,
     val onClick: (() -> Unit)? = null,
 )
+
+private const val PrivacyPolicyUrl = "https://shiotanneco.github.io/fiilda-launcher-app/privacy"
 
 @Composable
 internal fun SettingsScreen(
@@ -108,9 +149,16 @@ private fun SettingsScreenContent(
     searchController: DrawerSearchController,
     onBack: () -> Unit,
 ) {
+    var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    val pageStates = rememberSaveableStateHolder()
+    val goBack: () -> Unit = { if (page == null) onBack() else page = null }
+    BackHandler(enabled = page != null) { goBack() }
     val context = LocalContext.current
     val currentTheme = LocalLauncherTheme.current
     val changeTheme = LocalLauncherThemeChanger.current
+    val systemThemeConfig = LocalSystemThemeConfig.current
+    val changeSystemThemeConfig = LocalSystemThemeConfigChanger.current
+    var editingLightTheme by remember { mutableStateOf<Boolean?>(null) }
     val showAppLabels = LocalShowAppLabels.current
     val changeAppLabels = LocalShowAppLabelsChanger.current
     val showNotificationBadges = LocalShowNotificationBadges.current
@@ -120,6 +168,14 @@ private fun SettingsScreenContent(
     val reduceMotion = LocalReduceMotion.current
     val changeReduceMotion = LocalReduceMotionChanger.current
     var themeRotation by remember { mutableStateOf(readThemeRotationConfig(context)) }
+    DisposableEffect(context) {
+        val preferences = context.getSharedPreferences(LauncherThemePreferencesName, Context.MODE_PRIVATE)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == ThemeRotationEnabledKey) themeRotation = readThemeRotationConfig(context)
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     var showThemeRotationIntervalDialog by remember { mutableStateOf(false) }
     val notificationAccessGranted = notificationListenerAccessGranted(context)
     val versionName = runCatching {
@@ -167,14 +223,22 @@ private fun SettingsScreenContent(
             Toast.makeText(context, tr("横スクロール時の配置設定を保存できませんでした", "Couldn't save the sideways layout setting"), Toast.LENGTH_SHORT).show()
         }
     }
+    fun saveSystemTheme(updated: SystemThemeConfig) {
+        if (!changeSystemThemeConfig(updated)) {
+            Toast.makeText(context, tr("システム連動設定を保存できませんでした", "Couldn't save the system theme setting"), Toast.LENGTH_SHORT).show()
+        }
+    }
     fun saveThemeRotation(updated: ThemeRotationConfig) {
+        val previousRotation = themeRotation
+        val previousSystemTheme = systemThemeConfig
         if (!saveThemeRotationConfig(context, updated)) {
             Toast.makeText(context, tr("テーマローテーション設定を保存できませんでした", "Couldn't save the theme rotation setting"), Toast.LENGTH_SHORT).show()
             return
         }
         if (!ThemeRotationScheduler.update(context, updated)) {
-            saveThemeRotationConfig(context, themeRotation)
-            ThemeRotationScheduler.update(context, themeRotation)
+            saveThemeRotationConfig(context, previousRotation)
+            changeSystemThemeConfig(previousSystemTheme)
+            ThemeRotationScheduler.update(context, previousRotation)
             Toast.makeText(context, tr("テーマ切替を予約できませんでした", "Couldn't schedule the theme change"), Toast.LENGTH_SHORT).show()
             return
         }
@@ -183,6 +247,7 @@ private fun SettingsScreenContent(
     val showOnboarding = LocalShowOnboarding.current
     val sections = listOf(
         SettingsSection(
+            page = SettingsPage.ABOUT,
             title = tr("ランチャー情報", "About"),
             rows = listOf(
                 SettingsRow(
@@ -194,9 +259,19 @@ private fun SettingsScreenContent(
                     summary = tr("はじめに表示される案内をもう一度表示します", "Shows the introduction again"),
                     onClick = showOnboarding,
                 ),
+                SettingsRow(
+                    title = tr("プライバシーポリシー", "Privacy policy"),
+                    onClick = {
+                        openSystemSettings(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(PrivacyPolicyUrl)),
+                            tr("プライバシーポリシー", "the privacy policy"),
+                        )
+                    },
+                ),
             ),
         ),
         SettingsSection(
+            page = SettingsPage.SEARCH,
             title = tr("検索", "Search"),
             content = {
                 SettingsSearchTargetManagement(
@@ -206,6 +281,7 @@ private fun SettingsScreenContent(
             },
         ),
         SettingsSection(
+            page = SettingsPage.DISPLAY,
             title = tr("表示", "Display"),
             rows = listOf(
                 SettingsRow(
@@ -235,8 +311,27 @@ private fun SettingsScreenContent(
             ),
         ),
         SettingsSection(
+            page = SettingsPage.THEME,
             title = tr("テーマ", "Theme"),
-            rows = LauncherTheme.values().map { theme ->
+            rows = listOf(
+                SettingsRow(
+                    title = tr("システムの明暗設定に合わせる", "Follow system light/dark mode"),
+                    summary = tr("ライト用・ダーク用のテーマを自動で使い分けます。オンにするとローテーションはオフになります", "Uses your light and dark themes automatically. Turning this on turns off rotation"),
+                    selected = systemThemeConfig.enabled,
+                    isToggle = true,
+                    onValueChange = { saveSystemTheme(systemThemeConfig.copy(enabled = it)) },
+                ),
+                SettingsRow(
+                    title = tr("ライトモードのテーマ", "Light mode theme"),
+                    value = systemThemeConfig.lightTheme.displayName,
+                    onClick = { editingLightTheme = true },
+                ),
+                SettingsRow(
+                    title = tr("ダークモードのテーマ", "Dark mode theme"),
+                    value = systemThemeConfig.darkTheme.displayName,
+                    onClick = { editingLightTheme = false },
+                ),
+            ) + if (systemThemeConfig.enabled) emptyList() else LauncherTheme.values().map { theme ->
                 SettingsRow(
                     title = theme.displayName,
                     summary = theme.description,
@@ -248,11 +343,12 @@ private fun SettingsScreenContent(
             },
         ),
         SettingsSection(
+            page = SettingsPage.ROTATION,
             title = tr("テーマローテーション", "Theme rotation"),
             rows = listOf(
                 SettingsRow(
                     title = tr("テーマを自動で切り替える", "Switch themes automatically"),
-                    summary = tr("選択したテーマを順番に切り替えます。省電力中は時刻が前後する場合があります", "Cycles through the selected themes. Timing may shift in battery saver"),
+                    summary = tr("選択したテーマを順番に切り替えます。省電力中は時刻が前後する場合があります。オンにするとシステム連動はオフになります", "Cycles through the selected themes. Timing may shift in battery saver. Turning this on turns off system following"),
                     selected = themeRotation.enabled,
                     isToggle = true,
                     onValueChange = { enabled ->
@@ -268,6 +364,7 @@ private fun SettingsScreenContent(
             ),
         ),
         SettingsSection(
+            page = SettingsPage.ROTATION,
             title = tr("ローテーション対象", "Themes to rotate"),
             rows = LauncherTheme.values().map { theme ->
                 SettingsRow(
@@ -289,6 +386,7 @@ private fun SettingsScreenContent(
             },
         ),
         SettingsSection(
+            page = SettingsPage.DEVICE,
             title = tr("端末の設定", "Device settings"),
             rows = listOf(
                 SettingsRow(
@@ -304,6 +402,7 @@ private fun SettingsScreenContent(
             ),
         ),
         SettingsSection(
+            page = SettingsPage.NOTIFICATIONS,
             title = tr("通知", "Notifications"),
             rows = listOf(
                 SettingsRow(
@@ -329,9 +428,10 @@ private fun SettingsScreenContent(
             ),
         ),
     )
-    val displayedSections = if (currentTheme == LauncherTheme.GLASS) {
+    val displayedSections = if (currentTheme.isGlass || page == SettingsPage.GLASS) {
         sections + SettingsSection(
-            title = tr("ガラス", "Glass"),
+            page = SettingsPage.GLASS,
+            title = if (currentTheme.isGlass) currentTheme.displayName else SettingsPage.GLASS.title,
             content = { GlassThemeSettings() },
         )
     } else {
@@ -378,20 +478,24 @@ private fun SettingsScreenContent(
                 TopAppBar(
                     title = {
                         Text(
-                            text = tr("設定", "Settings"),
+                            text = page?.title ?: tr("設定", "Settings"),
                             style = MaterialTheme.typography.titleLarge,
                         )
                     },
                     navigationIcon = {
                         IconButton(
-                            onClick = onBack,
+                            onClick = goBack,
                             modifier = Modifier.semantics {
-                                contentDescription = tr("ランチャーに戻る", "Back to launcher")
+                                contentDescription = if (page == null) {
+                                    tr("ランチャーに戻る", "Back to launcher")
+                                } else {
+                                    tr("設定一覧に戻る", "Back to settings")
+                                }
                                 role = Role.Button
                             },
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                painter = painterResource(R.drawable.ms_arrow_back),
                                 contentDescription = null,
                             )
                         }
@@ -407,28 +511,71 @@ private fun SettingsScreenContent(
                 )
             },
         ) { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .consumeWindowInsets(innerPadding)
-                    .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
-                    )
-                    .verticalScroll(rememberScrollState())
-                    .padding(
-                        start = 12.dp,
-                        top = 8.dp,
-                        end = 12.dp,
-                        bottom = 8.dp + settingsTrailingPadding,
-                    ),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                displayedSections.forEach { section ->
-                    SettingsSectionContent(section)
+            pageStates.SaveableStateProvider(page?.name ?: "settings-overview") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .consumeWindowInsets(innerPadding)
+                        .windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
+                        )
+                        .verticalScroll(rememberScrollState())
+                        .padding(
+                            start = 12.dp,
+                            top = 8.dp,
+                            end = 12.dp,
+                            bottom = 8.dp + settingsTrailingPadding,
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    if (page == null) {
+                        SettingsPageList(
+                            pages = SettingsPage.entries.filter { candidate ->
+                                candidate != SettingsPage.GLASS || currentTheme.isGlass
+                            },
+                            onOpen = { page = it },
+                        )
+                    } else {
+                        displayedSections.filter { it.page == page }.forEach { section ->
+                            SettingsSectionContent(section, showTitle = section.title != page?.title)
+                        }
+                    }
                 }
             }
         }
+    }
+    editingLightTheme?.let { isLight ->
+        val selectedTheme = if (isLight) systemThemeConfig.lightTheme else systemThemeConfig.darkTheme
+        AlertDialog(
+            onDismissRequest = { editingLightTheme = null },
+            title = { Text(if (isLight) tr("ライトモードのテーマ", "Light mode theme") else tr("ダークモードのテーマ", "Dark mode theme")) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    LauncherTheme.values().forEach { theme ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .selectable(
+                                    selected = theme == selectedTheme,
+                                    role = Role.RadioButton,
+                                    onClick = {
+                                        saveSystemTheme(if (isLight) systemThemeConfig.copy(lightTheme = theme) else systemThemeConfig.copy(darkTheme = theme))
+                                        editingLightTheme = null
+                                    },
+                                )
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = theme == selectedTheme, onClick = null)
+                            Text(theme.displayName, modifier = Modifier.padding(start = 12.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { editingLightTheme = null }) { Text(tr("閉じる", "Close")) }
+            },
+        )
     }
     if (showThemeRotationIntervalDialog) {
         AlertDialog(
@@ -481,16 +628,54 @@ private fun SettingsScreenContent(
 }
 
 @Composable
-private fun SettingsSectionContent(section: SettingsSection) {
+private fun SettingsPageList(pages: List<SettingsPage>, onOpen: (SettingsPage) -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column {
+            pages.forEachIndexed { index, page ->
+                ListItem(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button, onClick = { onOpen(page) })
+                        .semantics(mergeDescendants = true) {},
+                    leadingContent = {
+                        Icon(painterResource(page.icon), contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    },
+                    headlineContent = { Text(page.title) },
+                    supportingContent = { Text(page.summary) },
+                    trailingContent = {
+                        Icon(painterResource(R.drawable.ms_chevron_right), contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    },
+                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                )
+                if (index < pages.lastIndex) {
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSectionContent(section: SettingsSection, showTitle: Boolean) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            text = section.title,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelMedium,
-        )
+        if (showTitle) {
+            Text(
+                text = section.title,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
@@ -621,7 +806,7 @@ private fun SettingsRowContent(row: SettingsRow) {
                         }
                         if (action != null) {
                             Icon(
-                                imageVector = Icons.Default.ChevronRight,
+                                painter = painterResource(R.drawable.ms_chevron_right),
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.windowInsetsTopHeight
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
@@ -26,7 +25,6 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
@@ -195,7 +193,8 @@ internal fun LauncherGlassHost(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val isGlass = LocalLauncherTheme.current == LauncherTheme.GLASS
+    val theme = LocalLauncherTheme.current
+    val isGlass = theme.isGlass
     val wallpaperState = LocalGlassWallpaperController.current?.state
     val wallpaperVersion = wallpaperState?.bitmap
     val appearance = wallpaperState?.appearance ?: GlassAppearance()
@@ -207,11 +206,12 @@ internal fun LauncherGlassHost(
     // not selected.
     val backdrop = rememberGlassBackdrop()
     val scene = rememberGlassScene()
-    val style = remember(appearance, highContrast, reduceTransparency) {
+    val style = remember(appearance, highContrast, reduceTransparency, theme) {
         launcherGlassStyle(
             appearance = appearance,
             reduceTransparency = reduceTransparency,
             highContrast = highContrast,
+            darkGlass = theme == LauncherTheme.DARK_GLASS,
         )
     }
     val context = remember(isGlass, motionEnabled, backdrop, scene, style) {
@@ -247,7 +247,6 @@ internal fun LauncherGlassHost(
                             scene = sceneForSurface,
                             geometryVersion = geometryVersion,
                         )
-                        .clip(RoundedCornerShape(cornerRadius))
                 }
 
                 @Composable

@@ -2,6 +2,7 @@ package com.fiilda.launcher
 
 import android.os.Build
 import android.provider.Settings
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,13 +43,13 @@ import kotlin.math.sqrt
  * While the board scrolls, every tile is pushed away from the tile the scroll started on, in
  * proportion to its distance, so the gaps between neighbours open up. Each tile then follows its target on its own
  * under-damped spring; farther tiles use softer springs, so they settle later and out of phase.
- * Pulling past the top or bottom edge spreads the tiles too, in proportion to the pull distance.
+ * Pulling past either scroll edge spreads the tiles too, in proportion to the pull distance.
  * When the whole surface slides sideways (page switch, Drawer transition), tiles lag behind like
  * objects with inertia and sway back; each tile has its own gain and spring so they move apart.
  */
 internal data class HomeFloatConfig(
     val spreadPerPx: Float = 0.105f,
-    val horizontalSpreadRatio: Float = 0.15f,
+    val crossAxisSpreadRatio: Float = 0.15f,
     val maxOffsetPx: Float,
     val reachPx: Float,
     val fullSpeedPxPerSecond: Float,
@@ -77,7 +78,10 @@ internal data class HomeFloatConfig(
 }
 
 /** Pure spring simulation for the float effect. Positions are in root pixels. */
-internal class HomeFloatSimulation(private val config: HomeFloatConfig) {
+internal class HomeFloatSimulation(
+    private val config: HomeFloatConfig,
+    private val scrollOrientation: Orientation = Orientation.Vertical,
+) {
     private class Body(var centerX: Float, var centerY: Float, id: String) {
         // Fixed per tile so neighbours sway by different amounts and out of phase.
         val swayGain = 0.75f + 0.5f * hashFraction(id, 0)
@@ -153,8 +157,9 @@ internal class HomeFloatSimulation(private val config: HomeFloatConfig) {
             val dy = body.centerY - anchor.y
             val distance = hypot(dx, dy)
             val spread = config.spreadPerPx * intensity
-            var targetX = dx * spread * config.horizontalSpreadRatio
-            var targetY = dy * spread
+            val horizontal = scrollOrientation == Orientation.Horizontal
+            var targetX = dx * spread * if (horizontal) 1f else config.crossAxisSpreadRatio
+            var targetY = dy * spread * if (horizontal) config.crossAxisSpreadRatio else 1f
             val targetLength = hypot(targetX, targetY)
             if (targetLength > config.maxOffsetPx) {
                 val scale = config.maxOffsetPx / targetLength
@@ -165,11 +170,12 @@ internal class HomeFloatSimulation(private val config: HomeFloatConfig) {
             val farness = min(distance / config.reachPx, 1f)
             val stiffness = config.stiffness * stiffnessBoost *
                 (1f - (1f - config.farStiffnessRatio) * farness)
-            val damping = 2f * config.dampingRatio * sqrt(stiffness)
-            val stiffnessX = stiffness * body.swayStiffness
+            val stiffnessX = stiffness * if (horizontal) 1f else body.swayStiffness
+            val stiffnessY = stiffness * if (horizontal) body.swayStiffness else 1f
             val dampingX = 2f * config.dampingRatio * sqrt(stiffnessX)
+            val dampingY = 2f * config.dampingRatio * sqrt(stiffnessY)
             body.vx += (stiffnessX * (targetX - body.x) - dampingX * body.vx) * dtSeconds
-            body.vy += (stiffness * (targetY - body.y) - damping * body.vy) * dtSeconds
+            body.vy += (stiffnessY * (targetY - body.y) - dampingY * body.vy) * dtSeconds
             body.x += body.vx * dtSeconds
             body.y += body.vy * dtSeconds
             if (abs(body.x) > REST_OFFSET_PX || abs(body.y) > REST_OFFSET_PX ||
@@ -209,8 +215,9 @@ internal class HomeFloatState(
     config: HomeFloatConfig,
     /** True when tiles report live root centers (lazy Drawer) instead of fixed board centers. */
     private val centersMoveWithScroll: Boolean,
+    private val scrollOrientation: Orientation = Orientation.Vertical,
 ) {
-    internal val simulation = HomeFloatSimulation(config)
+    internal val simulation = HomeFloatSimulation(config, scrollOrientation)
 
     /** Bumped once per simulated frame; tile layers read it to redraw without recomposing. */
     internal val frame = mutableIntStateOf(0)
@@ -225,20 +232,24 @@ internal class HomeFloatState(
     /** Distance the list scrolled since the last frame, as reported by nested scrolling. */
     internal var pendingScroll = 0f
 
-    /** Scroll left over at the top/bottom edge since the last frame; snapshot state to wake the loop. */
+    /** Scroll left over at either scroll edge since the last frame; snapshot state to wake the loop. */
     internal val pendingEdgePull = mutableFloatStateOf(0f)
 
-    /** Sees both a plain scroll column (Home) and a lazy grid (Drawer) the same way. */
+    /** Observes the configured scroll axis without consuming input. */
     internal val scrollConnection = object : NestedScrollConnection {
         override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-            pendingScroll += consumed.y
-            pendingEdgePull.floatValue += abs(available.y)
+            pendingScroll += if (scrollOrientation == Orientation.Horizontal) consumed.x else consumed.y
+            pendingEdgePull.floatValue += abs(
+                if (scrollOrientation == Orientation.Horizontal) available.x else available.y,
+            )
             return Offset.Zero
         }
 
         override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
             // A fling that hits an edge gives the tiles one kick proportional to its leftover speed.
-            pendingEdgePull.floatValue += abs(available.y) * EDGE_FLING_SECONDS
+            pendingEdgePull.floatValue += abs(
+                if (scrollOrientation == Orientation.Horizontal) available.x else available.y,
+            ) * EDGE_FLING_SECONDS
             return Velocity.Zero
         }
     }
@@ -263,7 +274,13 @@ internal class HomeFloatState(
         val center = anchorId?.let(simulation::centerOf)
         anchorPoint = when {
             center != null -> center
-            centersMoveWithScroll -> anchorPoint?.let { it + Offset(0f, scrollDeltaPx) }
+            centersMoveWithScroll -> anchorPoint?.let {
+                it + if (scrollOrientation == Orientation.Horizontal) {
+                    Offset(scrollDeltaPx, 0f)
+                } else {
+                    Offset(0f, scrollDeltaPx)
+                }
+            }
             else -> anchorPoint
         }
         return anchorPoint ?: viewportCoordinates?.let { coordinates ->
@@ -296,16 +313,17 @@ internal fun rememberReduceMotion(): Boolean {
 @Composable
 internal fun rememberHomeFloatState(
     centersMoveWithScroll: Boolean = false,
+    scrollOrientation: Orientation = Orientation.Vertical,
     isScrollInProgress: () -> Boolean,
 ): HomeFloatState? {
     val currentIsScrollInProgress = rememberUpdatedState(isScrollInProgress)
     val density = LocalDensity.current.density
     val reduceMotion = rememberReduceMotion()
-    val state = remember(density, reduceMotion) {
+    val state = remember(density, reduceMotion, centersMoveWithScroll, scrollOrientation) {
         if (reduceMotion) {
             null
         } else {
-            HomeFloatState(HomeFloatConfig.forDensity(density), centersMoveWithScroll)
+            HomeFloatState(HomeFloatConfig.forDensity(density), centersMoveWithScroll, scrollOrientation)
         }
     } ?: return null
     LaunchedEffect(state) {

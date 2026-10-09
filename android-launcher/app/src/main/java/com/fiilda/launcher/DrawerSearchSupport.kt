@@ -110,7 +110,6 @@ internal fun externalSearchUrl(
 
 internal enum class DrawerSearchPermissionAccess {
     NONE,
-    PARTIAL,
     FULL,
 }
 
@@ -122,8 +121,6 @@ internal data class DrawerSearchPermissionState(
 ) {
     val isDenied: Boolean
         get() = access == DrawerSearchPermissionAccess.NONE
-    val isPartial: Boolean
-        get() = access == DrawerSearchPermissionAccess.PARTIAL
     val isFull: Boolean
         get() = access == DrawerSearchPermissionAccess.FULL
 }
@@ -134,15 +131,6 @@ internal fun drawerSearchPermissionsFor(
     sdkInt: Int = Build.VERSION.SDK_INT,
 ): List<String> = when (source) {
     DeviceSearchSource.CONTACTS -> listOf(Manifest.permission.READ_CONTACTS)
-    DeviceSearchSource.VISUAL_MEDIA -> if (sdkInt <= 32) {
-        listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-    } else {
-        buildList {
-            add(Manifest.permission.READ_MEDIA_IMAGES)
-            add(Manifest.permission.READ_MEDIA_VIDEO)
-            if (sdkInt >= 34) add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-        }
-    }
     DeviceSearchSource.AUDIO -> if (sdkInt <= 32) {
         listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     } else {
@@ -157,33 +145,10 @@ internal fun resolveDrawerSearchPermissionState(
 ): DrawerSearchPermissionState {
     val required = drawerSearchPermissionsFor(source, sdkInt)
     val granted = grantedPermissions.intersect(required.toSet())
-    val access = when (source) {
-        DeviceSearchSource.CONTACTS,
-        DeviceSearchSource.AUDIO,
-        -> if (granted.size == required.size) {
-            DrawerSearchPermissionAccess.FULL
-        } else {
-            DrawerSearchPermissionAccess.NONE
-        }
-
-        DeviceSearchSource.VISUAL_MEDIA -> when {
-            sdkInt <= 32 && Manifest.permission.READ_EXTERNAL_STORAGE in granted ->
-                DrawerSearchPermissionAccess.FULL
-            sdkInt >= 33 &&
-                Manifest.permission.READ_MEDIA_IMAGES in granted &&
-                Manifest.permission.READ_MEDIA_VIDEO in granted ->
-                DrawerSearchPermissionAccess.FULL
-            sdkInt >= 34 &&
-                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED in granted ->
-                DrawerSearchPermissionAccess.PARTIAL
-            // A provider may expose one visual type when the other was declined. Keep the
-            // source usable and tell the UI that its result set is incomplete.
-            sdkInt >= 33 && (
-                Manifest.permission.READ_MEDIA_IMAGES in granted ||
-                    Manifest.permission.READ_MEDIA_VIDEO in granted
-                ) -> DrawerSearchPermissionAccess.PARTIAL
-            else -> DrawerSearchPermissionAccess.NONE
-        }
+    val access = if (granted.size == required.size) {
+        DrawerSearchPermissionAccess.FULL
+    } else {
+        DrawerSearchPermissionAccess.NONE
     }
     return DrawerSearchPermissionState(
         source = source,
@@ -199,14 +164,13 @@ internal fun drawerSearchStatusForPermission(
 ): SearchSourceStatus = when {
     !enabled -> SearchSourceStatus.DISABLED
     permission.access == DrawerSearchPermissionAccess.NONE -> SearchSourceStatus.DENIED
-    permission.access == DrawerSearchPermissionAccess.PARTIAL -> SearchSourceStatus.PARTIAL
     else -> SearchSourceStatus.READY
 }
 
 /**
- * Recovers the source that launched a restored RequestMultiplePermissions callback. On API 32
- * visual and audio share READ_EXTERNAL_STORAGE, so an empty/ambiguous result deliberately returns
- * null; the controller then invalidates all source caches and rechecks every enabled source.
+ * Recovers the source that launched a restored RequestMultiplePermissions callback. An empty
+ * result returns null; the controller then invalidates all source caches and rechecks every
+ * enabled source.
  */
 internal fun inferDrawerSearchPermissionSource(
     permissionNames: Collection<String>,

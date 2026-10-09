@@ -1,10 +1,8 @@
 package dev.glasslab.glass
 
-import kotlinx.coroutines.flow.drop
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -12,7 +10,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
@@ -55,6 +52,31 @@ private val nextContributorId = AtomicLong(1L)
 class GlassSceneState internal constructor() {
     internal val drawRevision = mutableIntStateOf(0)
     private val contributors = mutableStateMapOf<Long, GlassSceneContributorRecord>()
+    private val orderedContributors by derivedStateOf {
+        val recordsById = contributors.toMap()
+        orderedVisibleGlassContributors(
+            recordsById.values.map { record ->
+                GlassSceneOrderEntry(
+                    id = record.id,
+                    enabled = record.enabled,
+                    alpha = record.alpha,
+                    zIndex = record.zIndex,
+                    captureReady = record.captureReady,
+                    hasFallback = record.fallbackColor != null,
+                )
+            },
+        ).mapNotNull(recordsById::get)
+    }
+
+    private val geometryVersions by derivedStateOf {
+        orderedContributors.map { it.geometryVersion }.distinct()
+    }
+
+    // Observe motion in the consumer's draw scope once, instead of launching one flow per tile
+    // that writes the same scene revision on every scroll frame.
+    internal fun observeGeometry() {
+        geometryVersions.forEach { resolveGlassGeometry(it) }
+    }
 
     internal fun register(record: GlassSceneContributorRecord) {
         contributors[record.id] = record
@@ -78,22 +100,7 @@ class GlassSceneState internal constructor() {
         // This read deliberately subscribes the destination draw to contributor updates.
         @Suppress("UNUSED_VARIABLE")
         val revision = drawRevision.intValue
-        val recordsById = contributors.toMap()
-        val orderedIds = orderedVisibleGlassContributors(
-            recordsById.values.map { record ->
-                GlassSceneOrderEntry(
-                    id = record.id,
-                    enabled = record.enabled,
-                    alpha = record.alpha,
-                    zIndex = record.zIndex,
-                    captureReady = record.captureReady,
-                    hasFallback = record.fallbackColor != null,
-                )
-            },
-        )
-
-        orderedIds.forEach { id ->
-            val record = recordsById[id] ?: return@forEach
+        orderedContributors.forEach { record ->
             val sourceCoordinates = record.coordinates ?: return@forEach
             if (!sourceCoordinates.isAttached) return@forEach
             val bounds = runCatching {
@@ -303,7 +310,6 @@ private fun Modifier.glassSceneContributorImpl(
     if (!enabled) return@composed this
     val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
     val record = remember(scene) { GlassSceneContributorRecord(layer = layer) }
-    val geometryVersionState = rememberUpdatedState(geometryVersion)
     val density = LocalDensity.current
     val cornerRadiusPx = (cornerRadius.value * density.density)
         .takeIf { it.isFinite() }
@@ -312,15 +318,6 @@ private fun Modifier.glassSceneContributorImpl(
     DisposableEffect(scene, record) {
         scene.register(record)
         onDispose { scene.unregister(record) }
-    }
-    // A draw-time signal changes without recomposition; forward its changes to the scene so the
-    // navigation glass resamples, without re-recording this contributor's own content.
-    if (geometryVersion is GlassGeometrySignal) {
-        LaunchedEffect(scene, geometryVersion) {
-            snapshotFlow { resolveGlassGeometry(geometryVersion) }
-                .drop(1)
-                .collect { scene.invalidate() }
-        }
     }
     SideEffect {
         if (record.update(
@@ -339,8 +336,6 @@ private fun Modifier.glassSceneContributorImpl(
             if (record.updateCoordinates(it)) scene.invalidate()
         }
         .drawWithContent {
-            @Suppress("UNUSED_VARIABLE")
-            val geometryTick = geometryVersionState.value
             val hardware = drawContext.canvas.nativeCanvas.isHardwareAccelerated
             if (enabled && fallbackColor == null && hardware) {
                 record.layer.record { this@drawWithContent.drawContent() }

@@ -11,17 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -38,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -89,7 +79,7 @@ internal fun SettingsSearchTargetManagement(
                     .heightIn(min = 52.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Icon(Icons.Filled.Folder, contentDescription = null, modifier = Modifier.size(20.dp))
+                Icon(painterResource(R.drawable.ms_folder), contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = tr("フォルダを追加", "Add folder"),
@@ -105,7 +95,7 @@ internal fun SettingsSearchTargetManagement(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 colors = ButtonDefaults.filledTonalButtonColors(),
             ) {
-                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+                Icon(painterResource(R.drawable.ms_add), contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = tr("ファイルを追加", "Add file"),
@@ -136,7 +126,7 @@ internal fun SettingsSearchTargetManagement(
                     .fillMaxWidth()
                     .heightIn(min = 48.dp),
             ) {
-                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
+                Icon(painterResource(R.drawable.ms_refresh), contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(tr("検索を続ける", "Continue search"), maxLines = 2, overflow = TextOverflow.Clip)
             }
@@ -148,7 +138,7 @@ internal fun SettingsSearchTargetManagement(
                 .heightIn(min = 48.dp)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
-            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
+            Icon(painterResource(R.drawable.ms_refresh), contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text(tr("再読み込み", "Reload"), maxLines = 2, overflow = TextOverflow.Clip)
         }
@@ -162,9 +152,8 @@ private fun SettingsSearchSourceRow(
 ) {
     val statusLabel = settingsSearchSourceStatusLabel(source)
     val sourceIcon = when (source.source) {
-        DeviceSearchSource.CONTACTS -> Icons.Filled.Person
-        DeviceSearchSource.VISUAL_MEDIA -> Icons.Filled.PhotoLibrary
-        DeviceSearchSource.AUDIO -> Icons.Filled.MusicNote
+        DeviceSearchSource.CONTACTS -> R.drawable.ms_person
+        DeviceSearchSource.AUDIO -> R.drawable.ms_music_note
     }
     Column(modifier = Modifier.fillMaxWidth()) {
         ListItem(
@@ -183,7 +172,7 @@ private fun SettingsSearchSourceRow(
                 },
             leadingContent = {
                 Icon(
-                    imageVector = sourceIcon,
+                    painter = painterResource(sourceIcon),
                     contentDescription = null,
                     tint = if (source.enabled) {
                         MaterialTheme.colorScheme.primary
@@ -236,7 +225,7 @@ private fun SettingsSearchSourceRow(
                                 contentDescription = tr("${source.label}のアクセスを設定", "Set up ${source.label} access")
                             },
                     ) {
-                        Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(painterResource(R.drawable.ms_settings), contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = source.actionLabel ?: tr("アクセスを管理", "Manage access"),
@@ -262,7 +251,7 @@ private fun SettingsSearchSourceRow(
                                 contentDescription = tr("${source.label}を再試行", "Retry ${source.label}")
                             },
                     ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(painterResource(R.drawable.ms_refresh), contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(tr("再試行", "Retry"), maxLines = 2, overflow = TextOverflow.Clip)
                     }
@@ -283,7 +272,7 @@ private fun SettingsSearchDocumentRow(
         modifier = Modifier.fillMaxWidth(),
         leadingContent = {
             Icon(
-                imageVector = if (target.isTree) Icons.Filled.Folder else Icons.Filled.Description,
+                painter = painterResource(if (target.isTree) R.drawable.ms_folder else R.drawable.ms_description),
                 contentDescription = null,
                 tint = if (target.requiresReselection) {
                     MaterialTheme.colorScheme.error
@@ -331,7 +320,7 @@ private fun SettingsSearchDocumentRow(
                         contentDescription = actionDescription
                     },
                 ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null)
+                    Icon(painterResource(R.drawable.ms_refresh), contentDescription = null)
                 }
                 IconButton(
                     onClick = { controller.removeDocumentTarget(target.id) },
@@ -342,7 +331,7 @@ private fun SettingsSearchDocumentRow(
                         contentDescription = removeDescription
                     },
                 ) {
-                    Icon(Icons.Filled.DeleteOutline, contentDescription = null)
+                    Icon(painterResource(R.drawable.ms_delete), contentDescription = null)
                 }
             }
         },
@@ -373,7 +362,7 @@ private fun SettingsSearchStatusMessage(
     ) {
         if (status == SearchSourceStatus.ERROR || status == SearchSourceStatus.DENIED) {
             Icon(
-                imageVector = Icons.Filled.ErrorOutline,
+                painter = painterResource(R.drawable.ms_error),
                 contentDescription = null,
                 tint = settingsSearchStatusColor(status),
                 modifier = Modifier

@@ -26,11 +26,14 @@ app info screen so a package-delete intent cannot remove the personal copy.
 | `LauncherModels.kt` | Shared posture, home item, grid size, built-in widget, and home projection models |
 | `LauncherRoot.kt` | Compose state coordinator and navigation projection |
 | `HomeSurface.kt` | Home pages, canvas, board layout, and drag/reorder gestures |
+| `HomeFloat.kt` | Shared tile springs for vertical lists and the horizontal Home canvas; spread follows the scroll axis, and reduced motion disables it |
 | `HomeWidgets.kt` | Widget tile dispatch plus photo, media, pinned shortcut, and external widget tiles |
 | `AppDrawer.kt` | App grid/tile rendering, shortcut projections, and drawer search |
 | `LauncherDialogs.kt` | Home action sheets and built-in/provider widget picker dialogs |
 | `LauncherSharedUi.kt` | Header, context bar, tile primitives, icon mapping, and display helpers |
 | `LauncherThemeSurface.kt` | Palette accessors and the root theme boundary |
+| `SystemTheme.kt` | Persisted light/dark theme choices and system-mode theme resolution |
+| `ThemeRotation.kt` | Timed theme rotation and alarm scheduling |
 | `LauncherGlass.kt` | Stable glass host, wallpaper backdrop, surface/contributor adapters, and accessibility appearance |
 | `GlassWallpaper.kt` | App-private wallpaper import/store/controller, stable photo-picker registration, and settings preview |
 | `LauncherPersistence.kt` | SharedPreferences keys, migrations, ordering, serialization, and atomic writes |
@@ -58,7 +61,10 @@ and the pre-glass foreground scene. It does not own launcher navigation, input, 
 `LauncherGlassHost` retains one content call site across theme changes. Tiles sample the fixed
 wallpaper; the floating navigation and fixed drawer search surfaces additionally sample registered sharp foreground
 layers, without capturing other glass effects or duplicating interactive Composables. Foreground
-contributors are registered only while a foreground-sampling control is visible. Wide Home and
+contributors are registered only while a foreground-sampling control is visible. Scene consumers
+observe shared scroll/transition signals in their draw scope; contributors do not launch per-tile
+motion observers. Contributor ordering and wallpaper bitmap shaders are cached between draws.
+Wide Home and
 hidden surfaces keep their optical wallpaper sampling without allocating foreground capture
 layers or observing the scene's scroll/transition signal. Wide glass navigation retains the
 centered fade/scale reveal without a second, full-screen blur of the already filtered tiles;
@@ -81,3 +87,15 @@ v2 projection during migration. Page deletion reassigns items to the previous ne
 widget records, folders, sizes, and URI grants. Page controls report events to `LauncherRoot`;
 state changes only after an atomic layout save succeeds. The narrow Home tab cycles through
 the current page count; returning from the drawer preserves the selected page.
+
+System theme choices are resolved at the stable `FiiLDATheme` boundary from Compose's current
+night mode; system changes do not write preferences or replace `LauncherRoot`. System following
+and timed rotation disable each other in the same preference commit. Disabling system following
+keeps the currently displayed theme as the manual choice. Light/dark choices survive mode changes.
+
+SettingsScreen owns the category destination and per-page saved scroll state. An open Glass page
+keeps its controls when automatic theme changes select another theme. The app bar and
+system Back both return from a category to the settings list, then from the list to the launcher.
+Category changes keep the launcher theme boundary and search controller/picker registrations
+mounted, so external picker results retain their existing owners. Settings icons are Google's
+Material Symbols Outlined vectors; their Apache-2.0 license ships in the app's assets.

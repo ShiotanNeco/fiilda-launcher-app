@@ -155,46 +155,31 @@ class DrawerSearchControllerTest {
     }
 
     @Test
-    fun fullToPartialPermissionRefreshDropsOldVisualRows() {
-        saveDrawerSearchSourceEnabled(context, DeviceSearchSource.VISUAL_MEDIA, true)
-        permissionGateway.set(DeviceSearchSource.VISUAL_MEDIA, DrawerSearchPermissionAccess.FULL)
+    fun revokedPermissionDropsRowsFromInFlightQuery() {
+        saveDrawerSearchSourceEnabled(context, DeviceSearchSource.AUDIO, true)
+        permissionGateway.set(DeviceSearchSource.AUDIO, DrawerSearchPermissionAccess.FULL)
         val searchController = newController()
-        searchController.updateInputs("cat", active = true, refreshToken = 1)
-        val oldCall = awaitCall(DeviceSearchSource.VISUAL_MEDIA, index = 0)
+        searchController.updateInputs("song", active = true, refreshToken = 1)
+        val oldCall = awaitCall(DeviceSearchSource.AUDIO, index = 0)
 
-        permissionGateway.set(DeviceSearchSource.VISUAL_MEDIA, DrawerSearchPermissionAccess.PARTIAL)
+        permissionGateway.set(DeviceSearchSource.AUDIO, DrawerSearchPermissionAccess.NONE)
         searchController.onPermissionResult(
-            mapOf(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED to true),
+            mapOf(Manifest.permission.READ_MEDIA_AUDIO to false),
         )
-        val newCall = awaitCall(DeviceSearchSource.VISUAL_MEDIA, index = 1)
-
         oldCall.complete(
             listOf(
                 SearchResult(
-                    id = "media:old",
-                    label = "cat old",
-                    uri = "content://media/old",
-                    source = DeviceSearchSource.VISUAL_MEDIA,
+                    id = "audio:old",
+                    label = "song old",
+                    uri = "content://audio/old",
+                    source = DeviceSearchSource.AUDIO,
                 ),
             ),
         )
         awaitAtMost {
             searchController.state.files.isEmpty() &&
-                searchController.state.visualMediaStatus == SearchSourceStatus.LOADING
+                searchController.state.audioStatus == SearchSourceStatus.DENIED
         }
-
-        newCall.complete(
-            listOf(
-                SearchResult(
-                    id = "media:new",
-                    label = "cat fresh",
-                    uri = "content://media/new",
-                    source = DeviceSearchSource.VISUAL_MEDIA,
-                ),
-            ),
-        )
-        awaitAtMost { searchController.state.files.map { it.id } == listOf("media:new") }
-        assertEquals(SearchSourceStatus.PARTIAL, searchController.state.visualMediaStatus)
     }
 
     @Test
@@ -227,96 +212,56 @@ class DrawerSearchControllerTest {
     }
 
     @Test
-    fun permissionCallbacksRefreshFullPartialAndDeniedWithoutWaitingForLifecycleResume() {
-        saveDrawerSearchSourceEnabled(context, DeviceSearchSource.VISUAL_MEDIA, true)
-        permissionGateway.set(DeviceSearchSource.VISUAL_MEDIA, DrawerSearchPermissionAccess.FULL)
+    fun permissionCallbacksRefreshWithoutWaitingForLifecycleResume() {
+        saveDrawerSearchSourceEnabled(context, DeviceSearchSource.AUDIO, true)
+        permissionGateway.set(DeviceSearchSource.AUDIO, DrawerSearchPermissionAccess.FULL)
         val searchController = newController()
-        searchController.updateInputs("photo", active = true, refreshToken = 1)
-        val fullCall = awaitCall(DeviceSearchSource.VISUAL_MEDIA, index = 0)
+        searchController.updateInputs("song", active = true, refreshToken = 1)
+        val fullCall = awaitCall(DeviceSearchSource.AUDIO, index = 0)
         fullCall.complete(
             listOf(
                 SearchResult(
-                    id = "media:full",
-                    label = "photo full",
-                    uri = "content://media/full",
-                    source = DeviceSearchSource.VISUAL_MEDIA,
+                    id = "audio:full",
+                    label = "song full",
+                    uri = "content://audio/full",
+                    source = DeviceSearchSource.AUDIO,
                 ),
             ),
         )
-        awaitAtMost { searchController.state.visualMediaStatus == SearchSourceStatus.READY }
+        awaitAtMost { searchController.state.audioStatus == SearchSourceStatus.READY }
 
         // The callback updates state while the Activity is paused; it must not rely on an
-        // onResume-only refresh to reflect the selected-media grant.
+        // onResume-only refresh to reflect the revoked grant.
         searchController.updateLifecycleForeground(false)
-        permissionGateway.set(DeviceSearchSource.VISUAL_MEDIA, DrawerSearchPermissionAccess.PARTIAL)
+        permissionGateway.set(DeviceSearchSource.AUDIO, DrawerSearchPermissionAccess.NONE)
         searchController.onPermissionResult(
-            mapOf(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED to true),
-        )
-        awaitAtMost { searchController.state.visualMediaStatus == SearchSourceStatus.PARTIAL }
-        assertTrue(searchController.state.files.isEmpty())
-
-        searchController.updateLifecycleForeground(true)
-        val partialCall = awaitCall(DeviceSearchSource.VISUAL_MEDIA, index = 1)
-        partialCall.complete(
-            listOf(
-                SearchResult(
-                    id = "media:partial",
-                    label = "photo partial",
-                    uri = "content://media/partial",
-                    source = DeviceSearchSource.VISUAL_MEDIA,
-                ),
-            ),
-        )
-        awaitAtMost { searchController.state.visualMediaStatus == SearchSourceStatus.PARTIAL }
-
-        permissionGateway.set(DeviceSearchSource.VISUAL_MEDIA, DrawerSearchPermissionAccess.NONE)
-        searchController.onPermissionResult(
-            mapOf(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED to false),
+            mapOf(Manifest.permission.READ_MEDIA_AUDIO to false),
         )
         awaitAtMost {
-            searchController.state.visualMediaStatus == SearchSourceStatus.DENIED &&
+            searchController.state.audioStatus == SearchSourceStatus.DENIED &&
                 searchController.state.files.isEmpty()
         }
     }
 
     @Test
     @Config(sdk = [33])
-    fun api33ImagesOnlyGrantIsPartialAndManageAccessRequestsUpgrade() {
-        saveDrawerSearchSourceEnabled(context, DeviceSearchSource.VISUAL_MEDIA, true)
-        permissionGateway.setState(
-            resolveDrawerSearchPermissionState(
-                source = DeviceSearchSource.VISUAL_MEDIA,
-                grantedPermissions = setOf(Manifest.permission.READ_MEDIA_IMAGES),
-                sdkInt = 33,
-            ),
-        )
-        val searchController = newController()
-
-        assertEquals(SearchSourceStatus.PARTIAL, searchController.state.visualMediaStatus)
-        searchController.manageAccess(DeviceSearchSource.VISUAL_MEDIA)
-        assertEquals(listOf(DeviceSearchSource.VISUAL_MEDIA), permissionGateway.requests)
-    }
-
-    @Test
-    @Config(sdk = [33])
-    fun api33ImagesOnlyProductionGatewayRequestsVideoThenRoutesPermanentDenialToSettings() {
+    fun productionGatewayRequestsAudioThenRoutesPermanentDenialToSettings() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val shadowActivity = Shadows.shadowOf(activity)
-        shadowActivity.grantPermissions(Manifest.permission.READ_MEDIA_IMAGES)
-        shadowActivity.denyPermissions(Manifest.permission.READ_MEDIA_VIDEO)
+        shadowActivity.denyPermissions(Manifest.permission.READ_MEDIA_AUDIO)
         Shadows.shadowOf(activity.packageManager)
-            .setShouldShowRequestPermissionRationale(Manifest.permission.READ_MEDIA_VIDEO, false)
+            .setShouldShowRequestPermissionRationale(Manifest.permission.READ_MEDIA_AUDIO, false)
 
         val gateway = AndroidDrawerSearchPermissionGateway(activity)
         val launchedPermissions = mutableListOf<List<String>>()
-        val source = DeviceSearchSource.VISUAL_MEDIA
+        val source = DeviceSearchSource.AUDIO
 
-        assertEquals(DrawerSearchPermissionAccess.PARTIAL, gateway.permissionState(source).access)
+        assertEquals(DrawerSearchPermissionAccess.NONE, gateway.permissionState(source).access)
         gateway.request(source) { permissions -> launchedPermissions += permissions.toList() }
-        assertEquals(listOf(listOf(Manifest.permission.READ_MEDIA_VIDEO)), launchedPermissions)
+        assertEquals(listOf(listOf(Manifest.permission.READ_MEDIA_AUDIO)), launchedPermissions)
 
         shadowActivity.clearNextStartedActivities()
-        gateway.request(source) { error("permanently denied video must open settings") }
+        gateway.request(source) { error("permanently denied audio must open settings") }
 
         val settingsIntent = requireNotNull(shadowActivity.getNextStartedActivity())
         assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, settingsIntent.action)
@@ -475,9 +420,6 @@ class DrawerSearchControllerTest {
         fun set(source: DeviceSearchSource, access: DrawerSearchPermissionAccess) {
             val granted = when (access) {
                 DrawerSearchPermissionAccess.FULL -> drawerSearchPermissionsFor(source, sdkInt = 34).toSet()
-                DrawerSearchPermissionAccess.PARTIAL -> setOf(
-                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
-                )
                 DrawerSearchPermissionAccess.NONE -> emptySet()
             }
             states[source] = resolveDrawerSearchPermissionState(source, granted, sdkInt = 34)

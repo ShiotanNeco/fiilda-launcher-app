@@ -58,22 +58,28 @@ internal val FiiLDACyan: Color
 @Composable
 internal fun FiiLDATheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    var launcherTheme by remember { mutableStateOf(readLauncherTheme(context)) }
+    var manualTheme by remember { mutableStateOf(readLauncherTheme(context)) }
+    var systemThemeConfig by remember { mutableStateOf(readSystemThemeConfig(context)) }
+    val systemDarkTheme = isSystemInDarkTheme()
+    val launcherTheme = systemThemeConfig.resolve(manualTheme, systemDarkTheme)
     val themePreferences = remember(context) {
         context.getSharedPreferences(LauncherThemePreferencesName, android.content.Context.MODE_PRIVATE)
     }
     DisposableEffect(themePreferences) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
             if (key == LauncherThemePreferenceKey) {
-                launcherTheme = parseLauncherThemeToken(
+                manualTheme = parseLauncherThemeToken(
                     preferences.getString(LauncherThemePreferenceKey, LauncherTheme.DEFAULT.token),
                 )
+            }
+            if (key in SystemThemePreferenceKeys) {
+                systemThemeConfig = readSystemThemeConfig(context)
             }
         }
         themePreferences.registerOnSharedPreferenceChangeListener(listener)
         onDispose { themePreferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    DisposableEffect(context) {
+    DisposableEffect(context, systemThemeConfig.enabled) {
         ThemeRotationScheduler.update(context.applicationContext, readThemeRotationConfig(context))
         onDispose { }
     }
@@ -87,7 +93,6 @@ internal fun FiiLDATheme(content: @Composable () -> Unit) {
     var separateWideHomeOrder by remember { mutableStateOf(readSeparateWideHomeOrder(context)) }
     var reduceMotion by remember { mutableStateOf(readReduceMotion(context)) }
     val isMaterialTheme = launcherTheme == LauncherTheme.MATERIAL
-    val systemDarkTheme = isSystemInDarkTheme()
     val materialColorScheme = if (isMaterialTheme) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (systemDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -106,10 +111,19 @@ internal fun FiiLDATheme(content: @Composable () -> Unit) {
         launcherPaletteFor(launcherTheme)
     }
     val changeTheme: (LauncherTheme) -> Boolean = { requestedTheme ->
-        if (requestedTheme == launcherTheme) {
+        if (requestedTheme == manualTheme) {
             true
         } else if (saveLauncherTheme(context, requestedTheme)) {
-            launcherTheme = requestedTheme
+            manualTheme = requestedTheme
+            true
+        } else {
+            false
+        }
+    }
+    val changeSystemThemeConfig: (SystemThemeConfig) -> Boolean = { requestedConfig ->
+        if (saveSystemThemeConfig(context, requestedConfig)) {
+            manualTheme = readLauncherTheme(context)
+            systemThemeConfig = requestedConfig
             true
         } else {
             false
@@ -203,6 +217,8 @@ internal fun FiiLDATheme(content: @Composable () -> Unit) {
         LocalLauncherTheme provides launcherTheme,
         LocalLauncherPalette provides palette,
         LocalLauncherThemeChanger provides changeTheme,
+        LocalSystemThemeConfig provides systemThemeConfig,
+        LocalSystemThemeConfigChanger provides changeSystemThemeConfig,
         LocalGlassWallpaperController provides glassWallpaperController,
         LocalGlassReduceTransparency provides glassWallpaperController.state.reduceTransparency,
         LocalShowAppLabels provides showAppLabels,

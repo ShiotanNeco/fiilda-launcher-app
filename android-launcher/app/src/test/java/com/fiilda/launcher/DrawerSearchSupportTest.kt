@@ -60,53 +60,32 @@ class DrawerSearchSupportTest {
     fun permissionMatrixUsesExternalStorageOnlyThroughApi32() {
         assertEquals(
             listOf(Manifest.permission.READ_EXTERNAL_STORAGE),
-            drawerSearchPermissionsFor(DeviceSearchSource.VISUAL_MEDIA, sdkInt = 32),
-        )
-        assertEquals(
-            listOf(Manifest.permission.READ_EXTERNAL_STORAGE),
             drawerSearchPermissionsFor(DeviceSearchSource.AUDIO, sdkInt = 32),
         )
-        assertTrue(
-            Manifest.permission.READ_MEDIA_IMAGES in
-                drawerSearchPermissionsFor(DeviceSearchSource.VISUAL_MEDIA, sdkInt = 33),
-        )
-        assertFalse(
-            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED in
-                drawerSearchPermissionsFor(DeviceSearchSource.VISUAL_MEDIA, sdkInt = 33),
-        )
-        assertTrue(
-            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED in
-                drawerSearchPermissionsFor(DeviceSearchSource.VISUAL_MEDIA, sdkInt = 34),
+        assertEquals(
+            listOf(Manifest.permission.READ_MEDIA_AUDIO),
+            drawerSearchPermissionsFor(DeviceSearchSource.AUDIO, sdkInt = 33),
         )
     }
 
     @Test
-    fun permissionMatrixDistinguishesFullAndPartialVisualAccess() {
+    fun permissionMatrixDistinguishesFullAndDeniedAccess() {
         val full = resolveDrawerSearchPermissionState(
-            source = DeviceSearchSource.VISUAL_MEDIA,
-            grantedPermissions = setOf(
-                Manifest.permission.READ_MEDIA_IMAGES,
-                Manifest.permission.READ_MEDIA_VIDEO,
-            ),
-            sdkInt = 34,
-        )
-        val partial = resolveDrawerSearchPermissionState(
-            source = DeviceSearchSource.VISUAL_MEDIA,
-            grantedPermissions = setOf(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED),
+            source = DeviceSearchSource.AUDIO,
+            grantedPermissions = setOf(Manifest.permission.READ_MEDIA_AUDIO),
             sdkInt = 34,
         )
         val denied = resolveDrawerSearchPermissionState(
-            source = DeviceSearchSource.VISUAL_MEDIA,
+            source = DeviceSearchSource.AUDIO,
             grantedPermissions = emptySet(),
             sdkInt = 34,
         )
         assertEquals(DrawerSearchPermissionAccess.FULL, full.access)
-        assertEquals(DrawerSearchPermissionAccess.PARTIAL, partial.access)
         assertEquals(DrawerSearchPermissionAccess.NONE, denied.access)
     }
 
     @Test
-    fun restoredPermissionCallbackInfersDistinctApi33SourcesAndLeavesApi32Ambiguous() {
+    fun restoredPermissionCallbackInfersSourceFromPermissionNames() {
         assertEquals(
             DeviceSearchSource.CONTACTS,
             inferDrawerSearchPermissionSource(
@@ -122,19 +101,13 @@ class DrawerSearchSupportTest {
             ),
         )
         assertEquals(
-            DeviceSearchSource.VISUAL_MEDIA,
-            inferDrawerSearchPermissionSource(
-                setOf(Manifest.permission.READ_MEDIA_IMAGES),
-                sdkInt = 37,
-            ),
-        )
-        assertEquals(
-            null,
+            DeviceSearchSource.AUDIO,
             inferDrawerSearchPermissionSource(
                 setOf(Manifest.permission.READ_EXTERNAL_STORAGE),
                 sdkInt = 32,
             ),
         )
+        assertEquals(null, inferDrawerSearchPermissionSource(emptySet(), sdkInt = 37))
     }
 
     @Test

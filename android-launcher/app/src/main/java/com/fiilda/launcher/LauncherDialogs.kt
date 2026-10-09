@@ -168,7 +168,7 @@ private fun actionMenuColors(): ActionMenuColors {
             selected = scheme.primary,
             destructive = scheme.error,
         )
-        LauncherTheme.GLASS -> ActionMenuColors(
+        LauncherTheme.GLASS, LauncherTheme.DARK_GLASS -> ActionMenuColors(
             // Translucent over the blurred home screen unless transparency is reduced.
             sheet = Color(0xFF17191D).copy(
                 alpha = if (LocalGlassReduceTransparency.current) 1f else 0.78f,
@@ -396,7 +396,7 @@ private fun ActionMenuSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = actionMenuColors()
-    val blurBehind = LocalLauncherTheme.current == LauncherTheme.GLASS &&
+    val blurBehind = LocalLauncherTheme.current.isGlass &&
         !LocalGlassReduceTransparency.current
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -431,6 +431,7 @@ private fun ActionSheet(
                 // Keep the main menu reachable on the cover display while still allowing
                 // larger font scales to scroll through a subpage's complete option set.
                 .heightIn(max = 640.dp)
+                .nestedScroll(BottomSheetContentScrollConnection)
                 .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
@@ -959,7 +960,7 @@ private fun ActionNote(text: String) {
 }
 
 // A list fling must stop at its own edge instead of kicking the enclosing sheet's spring.
-internal object WidgetPickerScrollConnection : NestedScrollConnection {
+internal object BottomSheetContentScrollConnection : NestedScrollConnection {
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
         Velocity(0f, available.y)
 }
@@ -1057,7 +1058,7 @@ internal fun WidgetSelectorDialog(
                     // Fill the dialog's bounded remaining height so scrolling never remeasures
                     // the list from its visible content and shifts into the target selector.
                     .weight(1f)
-                    .nestedScroll(WidgetPickerScrollConnection)
+                    .nestedScroll(BottomSheetContentScrollConnection)
                     .clipToBounds(),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 contentPadding = PaddingValues(top = 12.dp, bottom = 2.dp),
