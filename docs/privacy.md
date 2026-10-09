@@ -10,7 +10,7 @@ FiiLDA Launcher(以下「本アプリ」)は、個人が開発しているAndroi
 
 - インストール済みアプリの一覧: ホーム画面とアプリ一覧の表示
 - 連絡先: アプリ一覧の検索
-- 写真・動画・音楽ファイル: アプリ一覧の検索
+- 音楽ファイル: アプリ一覧の検索
 - カレンダーの予定: 予定の表示
 - 通知: 通知バッジと再生中のメディアの表示(通知へのアクセスを許可した場合)
 
@@ -41,7 +41,7 @@ The following information is used only on the device, only for display and searc
 
 - Installed apps: to show the home screen and app drawer
 - Contacts: to search from the app drawer
-- Photos, videos, and music files: to search from the app drawer
+- Music files: to search from the app drawer
 - Calendar events: to show your agenda
 - Notifications: to show notification badges and the currently playing media (when you grant notification access)
 
