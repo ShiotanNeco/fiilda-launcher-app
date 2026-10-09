@@ -549,6 +549,16 @@ internal fun appLaunchResult(start: () -> Unit): AppLaunchResult = try {
     AppLaunchResult.SECURITY_DENIED
 }
 
+/**
+ * The same MAIN/LAUNCHER intent a system launcher sends. Apps that opt into strict intent
+ * matching (Android 16 `intentMatchingFlags`) reject an explicit component without a matching
+ * action, which made such apps fail to open from the home screen.
+ */
+internal fun launcherIntentFor(app: LaunchableApp): Intent =
+    Intent.makeMainActivity(ComponentName(app.packageName, app.className))
+        .addCategory(Intent.CATEGORY_LAUNCHER)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+
 internal fun launchApp(context: Context, app: LaunchableApp): AppLaunchResult {
     val result = appLaunchResult {
         if (app.profile != null) {
@@ -557,11 +567,7 @@ internal fun launchApp(context: Context, app: LaunchableApp): AppLaunchResult {
             launcherApps.startMainActivity(
                 ComponentName(app.packageName, app.className), app.launchUser(), null, null,
             )
-        } else context.startActivity(
-            Intent().setComponent(ComponentName(app.packageName, app.className)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            },
-        )
+        } else context.startActivity(launcherIntentFor(app))
     }
     if (result != AppLaunchResult.STARTED) {
         Toast.makeText(context, tr("アプリを開けませんでした", "Couldn't open the app"), Toast.LENGTH_SHORT).show()

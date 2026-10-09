@@ -103,7 +103,11 @@ class WorkProfileAppsTest {
     fun personalLaunchKeepsExistingIntentPathAndFavoriteId() {
         val personal = app(null)
         assertEquals(AppLaunchResult.STARTED, launchApp(context, personal))
-        assertEquals(component, shadowOf(context).nextStartedActivity.component)
+        val started = shadowOf(context).nextStartedActivity
+        assertEquals(component, started.component)
+        // Apps with strict intent matching only accept the launcher's MAIN/LAUNCHER intent.
+        assertEquals(Intent.ACTION_MAIN, started.action)
+        assertTrue(started.hasCategory(Intent.CATEGORY_LAUNCHER))
         assertNull(ProfileLauncherAppsShadow.launch)
         assertEquals("com.example.mail/com.example.mail.Main", favoriteId(personal))
     }
