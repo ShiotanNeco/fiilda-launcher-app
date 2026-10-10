@@ -45,7 +45,11 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
@@ -210,6 +214,8 @@ internal fun FiiLDALauncher(
     var wideWidgetSizeOverrides by remember { mutableStateOf(emptyMap<String, WidgetSizeChoice>()) }
     var externalWidgets by remember { mutableStateOf(emptyList<LauncherWidgetDescriptor>()) }
     var pinnedShortcuts by remember { mutableStateOf(emptyList<ResolvedPinnedShortcut>()) }
+    var webLinks by remember { mutableStateOf(readWebLinks(context)) }
+    var webLinkEditor by remember { mutableStateOf<WebLinkEditorRequest?>(null) }
     var homeFolders by remember { mutableStateOf(emptyList<HomeFolder>()) }
     var folderExpansionSession by remember { mutableStateOf<FolderExpansionSession?>(null) }
     var homePages by remember { mutableStateOf(HomePages.empty()) }
@@ -1428,6 +1434,85 @@ internal fun FiiLDALauncher(
             preferredWidgetPackage = null
         }
     }
+    // Records are committed before the layout: a layout ID without a record renders nothing and
+    // is dropped on the next edit, whereas the reverse order could show an unsaved tile.
+    val saveWebLink: (WebLinkTile, Boolean, Int) -> Boolean = { link, isNew, requestedTargetHomePage ->
+        val previous = readWebLinks(context)
+        val updated = if (isNew) {
+            previous + link
+        } else {
+            previous.map { if (it.homeId == link.homeId) link else it }
+        }
+        if (!saveWebLinks(context, updated)) {
+            Toast.makeText(context, tr("Webリンクを保存できませんでした", "Couldn't save the web link"), Toast.LENGTH_SHORT).show()
+            false
+        } else {
+            var committed = true
+            if (isNew) {
+                val layout = addHomeItemToLayout(
+                    currentHomeLayout(),
+                    link.homeId,
+                    requestedTargetHomePage.coerceIn(0, homePages.count - 1),
+                )
+                if (persistHomeLayoutTransaction(
+                        context = context,
+                        layout = layout,
+                        widgetSizes = widgetSizeOverrides,
+                        wideWidgetSizes = wideWidgetSizeOverrides,
+                        folders = homeFolders,
+                    )
+                ) {
+                    applyCommittedHomeLayout(layout)
+                } else {
+                    committed = false
+                    saveWebLinks(context, previous)
+                }
+            }
+            if (committed) {
+                webLinks = updated
+                deleteUnusedWebLinkIcons(context, updated)
+                Toast.makeText(
+                    context,
+                    if (isNew) tr("Webリンクを追加しました", "Added the web link") else tr("Webリンクを保存しました", "Saved the web link"),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } else {
+                Toast.makeText(context, tr("Webリンクを保存できませんでした", "Couldn't save the web link"), Toast.LENGTH_SHORT).show()
+            }
+            committed
+        }
+    }
+    val removeWebLink: (WebLinkTile) -> Boolean = { link ->
+        val updatedSizeMaps = removeHomeSizeIdFromMaps(
+            narrow = HomeSizeMaps(widgetSizeOverrides = widgetSizeOverrides),
+            wide = HomeSizeMaps(widgetSizeOverrides = wideWidgetSizeOverrides),
+            id = link.homeId,
+        )
+        val updatedLayout = removeHomeItemFromLayout(currentHomeLayout(), link.homeId)
+        if (!persistHomeLayoutTransaction(
+                context = context,
+                layout = updatedLayout,
+                widgetSizes = updatedSizeMaps.first.widgetSizeOverrides,
+                wideWidgetSizes = updatedSizeMaps.second.widgetSizeOverrides,
+                folders = homeFolders,
+            )
+        ) {
+            Toast.makeText(context, tr("Webリンクを削除できませんでした", "Couldn't remove the web link"), Toast.LENGTH_SHORT).show()
+            false
+        } else {
+            applyCommittedHomeLayout(updatedLayout)
+            widgetSizeOverrides = updatedSizeMaps.first.widgetSizeOverrides
+            wideWidgetSizeOverrides = updatedSizeMaps.second.widgetSizeOverrides
+            val remaining = readWebLinks(context).filterNot { it.homeId == link.homeId }
+            // A failed record write leaves an orphan record without a home position; it is
+            // invisible and is overwritten by the next successful save.
+            if (saveWebLinks(context, remaining)) deleteUnusedWebLinkIcons(context, remaining)
+            webLinks = remaining
+            actionWidget = null
+            Toast.makeText(context, tr("Webリンクを削除しました", "Removed the web link"), Toast.LENGTH_SHORT).show()
+            true
+        }
+    }
     val removeBuiltInWidget: (HomeItem.Widget, Int) -> Boolean = { item, _ ->
         val widget = item.widget
         if (widget == HomeWidget.PHOTO) {
@@ -2111,6 +2196,7 @@ internal fun FiiLDALauncher(
                                         zIndex = launcherSurfaceLayerZIndex(page, LauncherPage.HOME),
                                         geometryVersion = homeGeometry,
                                     ) {
+                                    CompositionLocalProvider(LocalWebLinkTiles provides webLinks) {
                                     HomeSurface(
                                     posture = posture,
                                     isVisible = page == LauncherPage.HOME,
@@ -2291,6 +2377,7 @@ internal fun FiiLDALauncher(
                                         wideCanvasLastHomePosition = position
                                     },
                                     )
+                                    }
                                     }
                                 }
                             }
@@ -2598,6 +2685,9 @@ internal fun FiiLDALauncher(
                 ?: WidgetSizeChoice.ROW_2_COLUMN_2
             is HomeItem.ExternalWidget -> actionWidgetSizes.widgetSizeOverrides[item.id]
                 ?: WidgetSizeChoice.AUTO
+            is HomeItem.WebLink -> actionWidgetSizes.widgetSizeOverrides[item.id]
+                ?.takeUnless { it.isAuto }
+                ?: WidgetSizeChoice.ROW_1_COLUMN_1
             is HomeItem.App -> null
             is HomeItem.PinnedShortcut -> null
             is HomeItem.Folder -> null
@@ -2610,13 +2700,21 @@ internal fun FiiLDALauncher(
                     is HomeItem.App -> tr("ウィジェット", "Widget")
                     is HomeItem.PinnedShortcut -> tr("ショートカット", "Shortcut")
                     is HomeItem.Folder -> tr("フォルダ", "Folder")
+                    is HomeItem.WebLink -> item.link.label.ifBlank { defaultWebLinkLabel(item.link.url) }
                 },
+                subtitle = if (item is HomeItem.WebLink) tr("Webリンク", "Web link") else tr("ウィジェット", "Widget"),
+                headerIcon = if (item is HomeItem.WebLink) Icons.Outlined.Link else Icons.Outlined.Widgets,
                 currentSize = currentSize,
                 includeAuto = item is HomeItem.ExternalWidget,
                 onEdit = if (item is HomeItem.Widget && item.widget == HomeWidget.PHOTO) {
                     {
                         actionWidget = null
                         requestPhotoSelection(false, actionWidgetHomePage, item.id)
+                    }
+                } else if (item is HomeItem.WebLink) {
+                    {
+                        actionWidget = null
+                        webLinkEditor = WebLinkEditorRequest(item.link, actionWidgetHomePage)
                     }
                 } else {
                     null
@@ -2627,6 +2725,7 @@ internal fun FiiLDALauncher(
                     } else {
                         FixedWidgetSizeChoices
                     }
+                    is HomeItem.WebLink -> PhotoWidgetSizeChoices
                     else -> FixedWidgetSizeChoices
                 },
                 onDismiss = { actionWidget = null },
@@ -2647,6 +2746,7 @@ internal fun FiiLDALauncher(
                                 ?.provider
                                 ?.flattenToString() == item.descriptor.provider
                         }.getOrDefault(false)
+                        is HomeItem.WebLink -> webLinks.any { it.homeId == item.id }
                         is HomeItem.App -> false
                         is HomeItem.PinnedShortcut -> false
                         is HomeItem.Folder -> false
@@ -2701,6 +2801,7 @@ internal fun FiiLDALauncher(
                     is HomeItem.App -> { { true } }
                     is HomeItem.PinnedShortcut -> { { removePinnedShortcut(item.shortcut) } }
                     is HomeItem.Folder -> { { true } }
+                    is HomeItem.WebLink -> { { removeWebLink(item.link) } }
                 },
             )
         }
@@ -2729,6 +2830,18 @@ internal fun FiiLDALauncher(
                 showSettingsScreen = true
             },
             onRemove = { removePinnedShortcut(shortcut) },
+        )
+    }
+
+    webLinkEditor?.let { request ->
+        WebLinkEditorDialog(
+            request = request,
+            onDismiss = {
+                webLinkEditor = null
+                // An image picked for an abandoned edit is no longer referenced.
+                deleteUnusedWebLinkIcons(context, readWebLinks(context))
+            },
+            onSave = { link, isNew -> saveWebLink(link, isNew, request.targetHomePage) },
         )
     }
 
@@ -2761,6 +2874,14 @@ internal fun FiiLDALauncher(
                 // Pass the selector value at the actual item click. This keeps a page change from
                 // being lost when a built-in opens the asynchronous photo picker.
                 addBuiltInWidget(widget, targetHomePage)
+            },
+            onWebLink = { targetHomePage ->
+                showWidgetSelector = false
+                preferredWidgetPackage = null
+                webLinkEditor = WebLinkEditorRequest(
+                    existing = null,
+                    targetHomePage = targetHomePage.coerceIn(0, homePages.count - 1),
+                )
             },
             onExternal = { provider, targetHomePage ->
                 showWidgetSelector = false

@@ -211,14 +211,14 @@ internal fun projectFavoriteNotifications(
         .mapValues { (_, records) -> records.toList() }
 }
 
-/** Suggested visible row capacity for each supported app-tile footprint. */
-internal fun notificationTileCapacity(size: AppTileSize): Int = when (size) {
-    AppTileSize.SMALL -> 0
-    AppTileSize.WIDE,
-    AppTileSize.TALL -> 1
-    AppTileSize.LARGE,
-    AppTileSize.TALL_3X1 -> 2
-    AppTileSize.TALL_3X2 -> 3
+/**
+ * Suggested visible row capacity for an app-tile footprint. The header takes one row; each further
+ * row adds a record, and a tile at least two cells wide and tall fits one more (1×2 and 2×1: 1,
+ * 2×2 and 3×1: 2, 3×2: 3, up to 6 for 6×4).
+ */
+internal fun notificationTileCapacity(size: AppTileSize): Int = when {
+    size == AppTileSize.SMALL -> 0
+    else -> maxOf(1, size.rowSpan - 1 + if (size.rowSpan >= 2 && size.columnSpan >= 2) 1 else 0)
 }
 
 /**

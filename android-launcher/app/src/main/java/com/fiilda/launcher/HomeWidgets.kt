@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -916,6 +917,137 @@ internal fun PinnedShortcutTile(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+        }
+    }
+}
+
+/**
+ * A user-defined web link: the chosen icon (or the name's first letter on the accent color) and
+ * its label. One-row footprints lay the icon and label side by side like a wide app tile.
+ */
+@Composable
+internal fun WebLinkTileView(
+    link: WebLinkTile,
+    size: GridItemSize,
+    posture: Posture,
+) {
+    val context = LocalContext.current
+    val iconBitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, link.iconFile) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            webLinkIconFile(context, link)?.let { file ->
+                runCatching { BitmapFactory.decodeFile(file.path)?.asImageBitmap() }.getOrNull()
+            }
+        }
+    }
+    val label = link.label.ifBlank { defaultWebLinkLabel(link.url) }
+    val showLabel = shouldRenderAppLabel(LocalShowAppLabels.current)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (LocalLauncherGlass.current.enabled) {
+                    Modifier.launcherGlassTile(fallbackColor = FiiLDASurface)
+                } else {
+                    Modifier.launcherShapedSurface(LauncherTileShape, FiiLDALine, FiiLDASurface)
+                },
+            )
+            .padding(6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            modifier = Modifier.fillMaxSize().launcherGlassContributor(),
+            contentAlignment = Alignment.Center,
+        ) {
+            val wideRow = size.rowSpan == 1 && size.columnSpan >= 2
+            // Match app tiles: the same label size and fitted icon size for the footprint.
+            val labelFontSize = homeAppTileLabelFontSizeSp(posture).sp
+            val labelHeight = with(LocalDensity.current) { labelFontSize.toDp() } * AppLabelLineHeightRatio + 2.dp
+            val iconSize = if (wideRow) {
+                (maxHeight * 0.8f).coerceIn(24.dp, 72.dp)
+            } else {
+                fittedAppIconSizeDp(
+                    preferredDp = if (size.rowSpan >= 2 && size.columnSpan >= 2) 87f else 63f,
+                    availableWidthDp = maxWidth.value,
+                    availableHeightDp = maxHeight.value,
+                    labelHeightDp = if (showLabel) labelHeight.value else 0f,
+                ).dp
+            }
+            val icon: @Composable () -> Unit = {
+                WebLinkIcon(link = link, bitmap = iconBitmap, size = iconSize)
+            }
+            if (wideRow) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    icon()
+                    if (showLabel) {
+                        Text(
+                            text = label,
+                            color = FiiLDAInk,
+                            fontSize = labelFontSize,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f).padding(start = 6.dp),
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    icon()
+                    if (showLabel) {
+                        FitText(
+                            text = label,
+                            color = FiiLDAMuted,
+                            maxFontSize = labelFontSize,
+                            minFontSize = AppLabelMinFontSizeSp.sp,
+                            modifier = Modifier.padding(top = 2.dp, start = 2.dp, end = 2.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun WebLinkIcon(
+    link: WebLinkTile,
+    bitmap: androidx.compose.ui.graphics.ImageBitmap?,
+    size: Dp,
+) {
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(size)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(size * 0.22f)),
+        )
+    } else {
+        // The theme background is transparent in Glass, so derive the letter color from the
+        // circle itself rather than reusing a palette role.
+        val circleColor = FiiLDACyan.copy(alpha = 1f)
+        val letterColor = Color(accessibleTileForegroundArgb(circleColor.toArgb()))
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(circleColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = webLinkInitial(link),
+                color = letterColor,
+                fontSize = (size.value * 0.46f).sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                maxLines = 1,
+            )
         }
     }
 }

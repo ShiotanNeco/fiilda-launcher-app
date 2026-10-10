@@ -230,23 +230,71 @@ internal data class WidgetGridSize(
  * for an external AppWidget; it is persisted as a token so choosing it explicitly remains stable
  * across an Activity recreation.
  */
-internal enum class WidgetSizeChoice(
+/**
+ * A widget footprint choice: AUTO keeps the provider's own size; any other value is a free size
+ * from 1×1 to [MaxTileRowSpan]×[MaxTileColumnSpan]. Named presets keep their historical tokens.
+ */
+@androidx.compose.runtime.Immutable
+internal class WidgetSizeChoice private constructor(
     val rowSpan: Int,
     val columnSpan: Int,
-    private val fixedLabel: String,
+    private val presetName: String?,
     val isAuto: Boolean = false,
 ) {
-    AUTO(0, 0, "", isAuto = true),
-    ROW_1_COLUMN_1(1, 1, "1×1"),
-    ROW_1_COLUMN_2(1, 2, "1×2"),
-    ROW_2_COLUMN_1(2, 1, "2×1"),
-    ROW_2_COLUMN_2(2, 2, "2×2"),
-    ROW_1_COLUMN_4(1, 4, "1×4"),
-    ROW_2_COLUMN_4(2, 4, "2×4"),
-    ROW_4_COLUMN_4(4, 4, "4×4"),
-    ;
+    val label: String get() = if (isAuto) tr("自動（元のサイズ）", "Automatic (original size)") else "$rowSpan×$columnSpan"
 
-    val label: String get() = if (isAuto) tr("自動（元のサイズ）", "Automatic (original size)") else fixedLabel
+    /** Stable persistence token: the preset name, or `R<rows>C<columns>` for a free size. */
+    val name: String get() = presetName ?: "R${rowSpan}C$columnSpan"
+
+    override fun equals(other: Any?): Boolean = other is WidgetSizeChoice &&
+        other.isAuto == isAuto && other.rowSpan == rowSpan && other.columnSpan == columnSpan
+
+    override fun hashCode(): Int = if (isAuto) -1 else rowSpan * 31 + columnSpan
+
+    override fun toString(): String = name
+
+    companion object {
+        val AUTO = WidgetSizeChoice(0, 0, "AUTO", isAuto = true)
+        val ROW_1_COLUMN_1 = WidgetSizeChoice(1, 1, "ROW_1_COLUMN_1")
+        val ROW_1_COLUMN_2 = WidgetSizeChoice(1, 2, "ROW_1_COLUMN_2")
+        val ROW_2_COLUMN_1 = WidgetSizeChoice(2, 1, "ROW_2_COLUMN_1")
+        val ROW_2_COLUMN_2 = WidgetSizeChoice(2, 2, "ROW_2_COLUMN_2")
+        val ROW_1_COLUMN_4 = WidgetSizeChoice(1, 4, "ROW_1_COLUMN_4")
+        val ROW_2_COLUMN_4 = WidgetSizeChoice(2, 4, "ROW_2_COLUMN_4")
+        val ROW_4_COLUMN_4 = WidgetSizeChoice(4, 4, "ROW_4_COLUMN_4")
+
+        private val presets = listOf(
+            ROW_1_COLUMN_1, ROW_1_COLUMN_2, ROW_2_COLUMN_1, ROW_2_COLUMN_2,
+            ROW_1_COLUMN_4, ROW_2_COLUMN_4, ROW_4_COLUMN_4,
+        )
+
+        /** AUTO followed by every preset. */
+        fun values(): List<WidgetSizeChoice> = listOf(AUTO) + presets
+
+        /** A fixed footprint clamped to the supported range; a preset is returned for its own size. */
+        fun of(rows: Int, columns: Int): WidgetSizeChoice {
+            val safeRows = rows.coerceIn(1, MaxTileRowSpan)
+            val safeColumns = columns.coerceIn(1, MaxTileColumnSpan)
+            return presets.firstOrNull { it.rowSpan == safeRows && it.columnSpan == safeColumns }
+                ?: WidgetSizeChoice(safeRows, safeColumns, null)
+        }
+
+        /** Parses a token written by [name]; unknown tokens throw like an enum lookup. */
+        fun valueOf(token: String): WidgetSizeChoice {
+            if (token == AUTO.name) return AUTO
+            presets.firstOrNull { it.presetName == token }?.let { return it }
+            val match = FreeSizeToken.matchEntire(token)
+                ?: throw IllegalArgumentException("Unknown widget size: $token")
+            val rows = match.groupValues[1].toInt()
+            val columns = match.groupValues[2].toInt()
+            require(rows in 1..MaxTileRowSpan && columns in 1..MaxTileColumnSpan) {
+                "Widget size out of range: $token"
+            }
+            return of(rows, columns)
+        }
+
+        private val FreeSizeToken = Regex("R(\\d)C(\\d)")
+    }
 }
 
 internal val FixedWidgetSizeChoices: List<WidgetSizeChoice> = listOf(
@@ -351,7 +399,7 @@ private fun isWidgetHomeId(id: String): Boolean {
     if (id.isBlank() || id.contains('\t') || id.contains('\r') || id.contains('\n')) {
         return false
     }
-    if (id in BuiltInWidgetHomeIds || isPhotoWidgetHomeId(id)) return true
+    if (id in BuiltInWidgetHomeIds || isPhotoWidgetHomeId(id) || isWebLinkHomeId(id)) return true
     return id.removePrefix(ExternalWidgetIdPrefix)
         .takeIf { id.startsWith(ExternalWidgetIdPrefix) }
         ?.toIntOrNull()

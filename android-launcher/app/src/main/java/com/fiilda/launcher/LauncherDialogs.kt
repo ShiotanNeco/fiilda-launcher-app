@@ -1,5 +1,20 @@
 package com.fiilda.launcher
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.HideImage
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.widget.Toast
 import android.content.Context
 import android.graphics.drawable.Drawable
 import android.os.Build
@@ -49,6 +64,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.AutoMode
@@ -645,12 +661,13 @@ private fun FootprintIcon(
     rows: Int,
     columns: Int,
     tint: Color,
+    sizeDp: Int = 28,
 ) {
     val safeRows = rows.coerceAtLeast(1)
     val safeColumns = columns.coerceAtLeast(1)
     Canvas(
         modifier = Modifier
-            .size(28.dp)
+            .size(sizeDp.dp)
             .clearAndSetSemantics {},
     ) {
         val gap = 2.dp.toPx()
@@ -687,6 +704,121 @@ private fun footprintAccessibilityLabel(
     rows: Int,
     columns: Int,
 ): String = tr("$prefix、${rows}行×${columns}列", "$prefix, ${rows} rows × ${columns} columns")
+
+/**
+ * Free-form size entry below the preset grid: rows 1–[MaxTileRowSpan] and columns
+ * 1–[MaxTileColumnSpan], previewed as a footprint and applied with one explicit action.
+ */
+@Composable
+private fun ActionFreeSizePicker(
+    initialRows: Int,
+    initialColumns: Int,
+    onApply: (rows: Int, columns: Int) -> Unit,
+) {
+    val colors = actionMenuColors()
+    var rows by remember(initialRows) { mutableIntStateOf(initialRows.coerceIn(1, MaxTileRowSpan)) }
+    var columns by remember(initialColumns) {
+        mutableIntStateOf(initialColumns.coerceIn(1, MaxTileColumnSpan))
+    }
+    ActionSection(tr("自由に設定", "Custom size")) {
+        ActionGroup {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                FootprintIcon(
+                    rows = rows,
+                    columns = columns,
+                    tint = colors.selected,
+                    sizeDp = 56,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    ActionSizeStepper(
+                        label = tr("縦", "Rows"),
+                        value = rows,
+                        range = 1..MaxTileRowSpan,
+                        onValueChange = { rows = it },
+                    )
+                    ActionSizeStepper(
+                        label = tr("横", "Columns"),
+                        value = columns,
+                        range = 1..MaxTileColumnSpan,
+                        onValueChange = { columns = it },
+                    )
+                }
+            }
+            HorizontalDivider(color = colors.outline.copy(alpha = 0.4f))
+            ActionRow(
+                text = tr("${rows}×${columns}にする", "Use ${rows}×${columns}"),
+                icon = Icons.Filled.Check,
+                accessibilityLabel = footprintAccessibilityLabel(
+                    prefix = tr("このサイズにする", "Apply size"),
+                    rows = rows,
+                    columns = columns,
+                ),
+                onClick = { onApply(rows, columns) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionSizeStepper(
+    label: String,
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+) {
+    val colors = actionMenuColors()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = false) {
+                stateDescription = tr("$label ${value}", "$label $value")
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = colors.ink,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(
+            onClick = { onValueChange((value - 1).coerceIn(range)) },
+            enabled = value > range.first,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Remove,
+                contentDescription = tr("${label}を減らす", "Fewer ${label.lowercase()}"),
+                tint = if (value > range.first) colors.ink else colors.muted.copy(alpha = 0.38f),
+            )
+        }
+        Text(
+            text = value.toString(),
+            color = colors.ink,
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(28.dp),
+        )
+        IconButton(
+            onClick = { onValueChange((value + 1).coerceIn(range)) },
+            enabled = value < range.last,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = tr("${label}を増やす", "More ${label.lowercase()}"),
+                tint = if (value < range.last) colors.ink else colors.muted.copy(alpha = 0.38f),
+            )
+        }
+    }
+}
 
 @Composable
 internal fun AppActionDialog(
@@ -872,30 +1004,29 @@ internal fun AppActionDialog(
                     showBack = true,
                     onBack = { menuPage = ActionMenuPage.MAIN },
                 )
-                val liveSizes = setOf(AppTileSize.TALL_3X1, AppTileSize.TALL_3X2)
-                listOf(
-                    tr("基本サイズ", "Standard sizes") to AppTileSize.values().filterNot { it in liveSizes },
-                    tr("通知ライブ向けサイズ", "Sizes for live notifications") to AppTileSize.values().filter { it in liveSizes },
-                ).forEach { (title, sizes) ->
-                    ActionSection(title) {
-                        ActionSizeChoiceGrid(
-                            options = sizes.map { option ->
-                                ActionSizeOption(
-                                    label = option.label,
-                                    rows = option.rowSpan,
-                                    columns = option.columnSpan,
-                                    accessibilityLabel = footprintAccessibilityLabel(
-                                        prefix = tr("サイズ", "Size"),
-                                        rows = option.rowSpan,
-                                        columns = option.columnSpan,
-                                    ),
-                                    isSelected = option == tileSize,
-                                    onClick = { if (onSetTileSize(option)) onDismiss() },
-                                )
-                            },
+                ActionSizeChoiceGrid(
+                    options = AppTileSize.values().map { option ->
+                        ActionSizeOption(
+                            label = option.label,
+                            rows = option.rowSpan,
+                            columns = option.columnSpan,
+                            accessibilityLabel = footprintAccessibilityLabel(
+                                prefix = tr("サイズ", "Size"),
+                                rows = option.rowSpan,
+                                columns = option.columnSpan,
+                            ),
+                            isSelected = option == tileSize,
+                            onClick = { if (onSetTileSize(option)) onDismiss() },
                         )
-                    }
-                }
+                    },
+                )
+                ActionFreeSizePicker(
+                    initialRows = tileSize.rowSpan,
+                    initialColumns = tileSize.columnSpan,
+                    onApply = { rows, columns ->
+                        if (onSetTileSize(AppTileSize.of(rows, columns))) onDismiss()
+                    },
+                )
             }
 
             ActionMenuPage.DISPLAY -> {
@@ -979,6 +1110,7 @@ internal fun WidgetSelectorDialog(
     onHomePageSelected: (Int) -> Unit,
     onBuiltIn: (HomeWidget, Int) -> Unit,
     onExternal: (WidgetPickerProvider, Int) -> Unit,
+    onWebLink: (Int) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val orderedGroups = remember(providerGroups, preferredPackage) {
@@ -1063,6 +1195,18 @@ internal fun WidgetSelectorDialog(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 contentPadding = PaddingValues(top = 12.dp, bottom = 2.dp),
             ) {
+                item(key = "fiilda-web-link") {
+                    ActionRow(
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .clip(LauncherTileShape)
+                            .background(colors.group),
+                        text = tr("Webリンク", "Web link"),
+                        icon = Icons.Outlined.Link,
+                        value = tr("URLとアイコンを指定", "Your URL and icon"),
+                        onClick = { onWebLink(pickerHomePage) },
+                    )
+                }
                 if (availableBuiltIns.isNotEmpty()) {
                     item(key = "fiilda-widgets-heading") {
                         ActionSectionHeading(
@@ -1467,6 +1611,8 @@ private fun WidgetPreviewCard(
 @Composable
 internal fun WidgetActionDialog(
     label: String,
+    subtitle: String = tr("ウィジェット", "Widget"),
+    headerIcon: ImageVector = Icons.Outlined.Widgets,
     currentSize: WidgetSizeChoice,
     includeAuto: Boolean,
     onEdit: (() -> Unit)? = null,
@@ -1487,8 +1633,8 @@ internal fun WidgetActionDialog(
         if (!showSizes) {
             ActionSheetHeader(
                 label = label,
-                subtitle = tr("ウィジェット", "Widget"),
-                leading = { ActionHeaderBadge(Icons.Outlined.Widgets) },
+                subtitle = subtitle,
+                leading = { ActionHeaderBadge(headerIcon) },
             )
             // Settings stays in the first viewport even for a photo widget on the cover display.
             ActionTileRow {
@@ -1565,6 +1711,13 @@ internal fun WidgetActionDialog(
                     )
                 },
             )
+            ActionFreeSizePicker(
+                initialRows = if (currentSize.isAuto) 2 else currentSize.rowSpan,
+                initialColumns = if (currentSize.isAuto) 2 else currentSize.columnSpan,
+                onApply = { rows, columns ->
+                    if (onSetSize(WidgetSizeChoice.of(rows, columns))) onDismiss()
+                },
+            )
         }
     }
 }
@@ -1615,6 +1768,183 @@ internal fun PinnedShortcutActionDialog(
                 icon = Icons.Outlined.RemoveCircleOutline,
                 destructive = true,
                 onClick = { if (onRemove()) onDismiss() },
+            )
+        }
+    }
+}
+
+/**
+ * Adds or edits a web link tile: URL, optional name, and an optional icon image copied from the
+ * photo picker. Without an image the tile shows the name's first letter. Nothing is fetched from
+ * the site, so saving a link does not contact it.
+ */
+@Composable
+internal fun WebLinkEditorDialog(
+    request: WebLinkEditorRequest,
+    onDismiss: () -> Unit,
+    onSave: (WebLinkTile, isNew: Boolean) -> Boolean,
+) {
+    val colors = actionMenuColors()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val existing = request.existing
+    var url by rememberSaveable(existing?.homeId) { mutableStateOf(existing?.url.orEmpty()) }
+    var name by rememberSaveable(existing?.homeId) { mutableStateOf(existing?.label.orEmpty()) }
+    var iconFile by rememberSaveable(existing?.homeId) { mutableStateOf(existing?.iconFile) }
+    var importingIcon by remember { mutableStateOf(false) }
+    val normalizedUrl = normalizeWebLinkUrl(url)
+    val showUrlError = url.isNotBlank() && normalizedUrl == null
+    val homeId = remember(existing?.homeId) { existing?.homeId ?: newWebLinkHomeId() }
+    val preview = WebLinkTile(
+        homeId = homeId,
+        url = normalizedUrl ?: url,
+        label = name.trim(),
+        iconFile = iconFile,
+    )
+    val iconPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            importingIcon = true
+            scope.launch {
+                val imported = withContext(Dispatchers.IO) { importWebLinkIcon(context, uri) }
+                importingIcon = false
+                if (imported != null) {
+                    iconFile = imported
+                } else {
+                    Toast.makeText(context, tr("画像を読み込めませんでした", "Couldn't load the image"), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = colors.ink,
+        unfocusedTextColor = colors.ink,
+        focusedContainerColor = colors.group,
+        unfocusedContainerColor = colors.group,
+        focusedBorderColor = colors.selected,
+        unfocusedBorderColor = Color.Transparent,
+        cursorColor = colors.selected,
+        focusedPlaceholderColor = colors.muted,
+        unfocusedPlaceholderColor = colors.muted,
+    )
+    val canSave = normalizedUrl != null && !importingIcon
+    val save = {
+        if (normalizedUrl != null) {
+            val link = WebLinkTile(
+                homeId = homeId,
+                url = normalizedUrl,
+                label = name.trim().take(48),
+                iconFile = iconFile,
+            )
+            if (onSave(link, existing == null)) onDismiss()
+        }
+    }
+    ActionSheet(onDismiss = onDismiss) {
+        ActionSheetHeader(
+            label = if (existing == null) tr("Webリンクを追加", "Add web link") else tr("Webリンクを編集", "Edit web link"),
+            subtitle = tr("タップするとブラウザで開きます", "Opens in your browser when tapped"),
+            leading = { ActionHeaderBadge(Icons.Outlined.Link) },
+        )
+        ActionSection(tr("URL", "URL")) {
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it.take(2048) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = LauncherTileShape,
+                placeholder = { Text("example.com") },
+                isError = showUrlError,
+                supportingText = if (showUrlError) {
+                    { Text(tr("http または https のURLを入力してください", "Enter an http or https URL")) }
+                } else {
+                    null
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Next,
+                ),
+                colors = fieldColors,
+            )
+        }
+        ActionSection(tr("名前", "Name")) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it.take(48) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = LauncherTileShape,
+                placeholder = {
+                    Text(normalizedUrl?.let(::defaultWebLinkLabel) ?: tr("空欄ならサイト名", "Site name if empty"))
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (canSave) save() }),
+                colors = fieldColors,
+            )
+        }
+        ActionSection(tr("アイコン", "Icon")) {
+            ActionGroup {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    val previewBitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, iconFile) {
+                        value = withContext(Dispatchers.IO) {
+                            webLinkIconFile(context, preview)?.let { file ->
+                                runCatching {
+                                    android.graphics.BitmapFactory.decodeFile(file.path)?.asImageBitmap()
+                                }.getOrNull()
+                            }
+                        }
+                    }
+                    WebLinkIcon(link = preview, bitmap = previewBitmap, size = 48.dp)
+                    Text(
+                        text = if (iconFile == null) {
+                            tr("画像がないときは名前の頭文字を表示します", "Without an image, the name's first letter is shown")
+                        } else {
+                            tr("選んだ画像", "Chosen image")
+                        },
+                        color = colors.muted,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                HorizontalDivider(color = colors.outline.copy(alpha = 0.4f))
+                ActionRow(
+                    text = if (importingIcon) tr("読み込み中…", "Loading…") else tr("画像を選ぶ", "Choose image"),
+                    icon = Icons.Outlined.Image,
+                    onClick = {
+                        if (!importingIcon) {
+                            iconPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
+                        }
+                    },
+                )
+                if (iconFile != null) {
+                    ActionRow(
+                        text = tr("画像を外す", "Remove image"),
+                        icon = Icons.Outlined.HideImage,
+                        onClick = { iconFile = null },
+                    )
+                }
+            }
+        }
+        ActionGroup {
+            ActionRow(
+                text = if (existing == null) tr("ホームに追加", "Add to Home") else tr("保存", "Save"),
+                icon = Icons.Filled.Check,
+                isSelected = null,
+                accessibilityLabel = if (canSave) {
+                    if (existing == null) tr("ホームに追加", "Add to Home") else tr("保存", "Save")
+                } else {
+                    tr("URLを入力すると保存できます", "Enter a URL to save")
+                },
+                modifier = Modifier.then(if (canSave) Modifier else Modifier.alpha(0.38f)),
+                onClick = { if (canSave) save() },
             )
         }
     }

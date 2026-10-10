@@ -454,7 +454,7 @@ internal fun normalizeHomeLayout(
     val candidate = storedLayout ?: return fallback
     val canonical = canonicalizeHomeLayout(candidate)
     val retained = canonical.order.filter {
-        (it in allowed || isPhotoWidgetHomeId(it)) && it !in folderMemberIds
+        (it in allowed || isPhotoWidgetHomeId(it) || isWebLinkHomeId(it)) && it !in folderMemberIds
     }
     val retainedIds = retained.toSet()
     val retainedNarrow = canonical.narrowOrder.filter { it in retainedIds }

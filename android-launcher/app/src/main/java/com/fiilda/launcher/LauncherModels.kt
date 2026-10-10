@@ -74,6 +74,10 @@ internal sealed interface HomeItem {
     data class Folder(val folder: HomeFolder) : HomeItem {
         override val id: String = folder.id
     }
+
+    data class WebLink(val link: WebLinkTile) : HomeItem {
+        override val id: String = link.homeId
+    }
 }
 
 /** A compact group of home apps. Members remain favorites but are represented only by the folder. */
@@ -106,17 +110,20 @@ internal fun buildHomeItems(
     externalWidgets: List<LauncherWidgetDescriptor> = emptyList(),
     pinnedShortcuts: List<ResolvedPinnedShortcut> = emptyList(),
     folders: List<HomeFolder> = emptyList(),
+    webLinks: List<WebLinkTile> = emptyList(),
 ): List<HomeItem> {
     val appsById = apps.associateBy(::favoriteId)
     val externalById = externalWidgets.associateBy { it.homeId }
     val pinnedById = pinnedShortcuts.associateBy { it.homeId }
     val foldersById = folders.associateBy { it.id }
+    val webLinksById = webLinks.associateBy { it.homeId }
     return order.mapNotNull { id ->
         HomeWidget.values().firstOrNull { it.id == id }?.let { HomeItem.Widget(it, id) }
             ?: id.takeIf(::isPhotoWidgetHomeId)?.let { HomeItem.Widget(HomeWidget.PHOTO, it) }
             ?: externalById[id]?.let { HomeItem.ExternalWidget(it) }
             ?: pinnedById[id]?.let { HomeItem.PinnedShortcut(it) }
             ?: foldersById[id]?.let { HomeItem.Folder(it) }
+            ?: webLinksById[id]?.let { HomeItem.WebLink(it) }
             ?: appsById[id]?.let { HomeItem.App(it) }
     }
 }

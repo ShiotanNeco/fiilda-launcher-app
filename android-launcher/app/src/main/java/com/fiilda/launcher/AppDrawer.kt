@@ -282,7 +282,7 @@ internal fun AppTile(
             // inter-cell gaps. Do not reconstruct TALL/LARGE height from an aspect ratio here.
             Modifier.fillMaxSize()
         }
-        size == AppTileSize.WIDE && cellSize != null -> Modifier.height(cellSize)
+        size.isWideRow && cellSize != null -> Modifier.height(cellSize)
         else -> Modifier.aspectRatio(size.columnSpan.toFloat() / size.rowSpan.toFloat())
     }
     val wideIconSize = fittedAppIconSizeDp(
@@ -343,7 +343,7 @@ internal fun AppTile(
                         // divider matches the outer HomeGrid gap rather than inheriting tile
                         // padding.
                         Modifier.padding(0.dp)
-                    } else if (size == AppTileSize.WIDE && !hasNotificationPresentation) {
+                    } else if (size.isWideRow && !hasNotificationPresentation) {
                         Modifier.padding(
                             start = wideIconSidePadding,
                             top = 6.dp,
@@ -359,7 +359,7 @@ internal fun AppTile(
                 .launcherGlassContributor(),
             contentAlignment = Alignment.Center,
         ) {
-        if (size == AppTileSize.WIDE && !hasShortcutPresentation && !hasNotificationPresentation) {
+        if (size.isWideRow && !hasShortcutPresentation && !hasNotificationPresentation) {
             Row(
                 modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -395,7 +395,7 @@ internal fun AppTile(
                 onAppClick = onClick,
                 onNotificationClick = onNotificationClick,
             )
-        } else if (size == AppTileSize.WIDE && hasShortcutPresentation) {
+        } else if (size.isWideRow && hasShortcutPresentation) {
             AppShortcutSplit(
                 app = app,
                 shortcut = shortcuts.first(),
@@ -408,7 +408,7 @@ internal fun AppTile(
                 onClick = onClick,
                 onShortcutClick = onShortcutClick,
             )
-        } else if (size == AppTileSize.TALL && hasShortcutPresentation) {
+        } else if (size.isTallPair && hasShortcutPresentation) {
             AppShortcutSplit(
                 app = app,
                 shortcut = shortcuts.first(),
@@ -421,7 +421,7 @@ internal fun AppTile(
                 onClick = onClick,
                 onShortcutClick = onShortcutClick,
             )
-        } else if (size == AppTileSize.LARGE && hasShortcutPresentation) {
+        } else if (size.isSquareBlock && hasShortcutPresentation) {
             LargeAppShortcutGrid(
                 app = app,
                 shortcuts = shortcuts,
@@ -453,7 +453,7 @@ internal fun AppTile(
             val labelHeight = with(LocalDensity.current) { labelFontSize.toDp() } * AppLabelLineHeightRatio + 2.dp
             BoxWithConstraints(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 val iconSize = fittedAppIconSizeDp(
-                    preferredDp = if (size == AppTileSize.LARGE) 87f else 63f,
+                    preferredDp = if (size.rowSpan >= 2 && size.columnSpan >= 2) 87f else 63f,
                     availableWidthDp = maxWidth.value,
                     availableHeightDp = maxHeight.value,
                     labelHeightDp = if (showLabel) labelHeight.value else 0f,
@@ -595,7 +595,7 @@ private fun NotificationLiveTile(
         ) {
             LauncherIcon(
                 app = app,
-                size = if (size == AppTileSize.TALL_3X2) 34.dp else 28.dp,
+                size = if (size.rowSpan >= 3 && size.columnSpan >= 2) 34.dp else 28.dp,
             )
             Text(
                 text = app.label,

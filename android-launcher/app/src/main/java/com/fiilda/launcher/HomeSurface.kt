@@ -249,6 +249,7 @@ internal fun HomeSurface(
                     externalWidgets = externalWidgets,
                     pinnedShortcuts = pinnedShortcuts,
                     folders = homeFolders,
+                    webLinks = LocalWebLinkTiles.current,
                 ),
                 installedApps = installedApps,
                 selectedPackage = selectedPackage,
@@ -728,17 +729,19 @@ private fun StartCanvas(
                 )
             }
         }
+        val webLinks = LocalWebLinkTiles.current
         val homeCanvasItems = remember(
             order,
             installedApps,
             externalWidgets,
             pinnedShortcuts,
             folders,
+            webLinks,
             appTileSizes,
             sharedExternalWidgetSizes,
             widgetSizeOverrides,
         ) {
-            buildHomeItems(order, installedApps, externalWidgets, pinnedShortcuts, folders).map { item ->
+            buildHomeItems(order, installedApps, externalWidgets, pinnedShortcuts, folders, webLinks).map { item ->
                 val size = homeItemSize(
                     item = item,
                     columns = 6,
@@ -822,7 +825,7 @@ private fun StartCanvas(
                         posture = Posture.INNER_LANDSCAPE,
                         isVisible = isVisible && homeCanvasItemVisible,
                         now = now,
-                        items = buildHomeItems(order, installedApps, externalWidgets, pinnedShortcuts, folders),
+                        items = buildHomeItems(order, installedApps, externalWidgets, pinnedShortcuts, folders, webLinks),
                         installedApps = installedApps,
                         selectedPackage = selectedPackage,
                         appTileSizes = appTileSizes,
@@ -918,6 +921,13 @@ private fun homeItemSize(
     ).let { size -> GridItemSize(size.columnSpan, size.rowSpan) }
 
     is HomeItem.PinnedShortcut -> GridItemSize(columnSpan = 1, rowSpan = 1)
+
+    is HomeItem.WebLink -> resolveWidgetGridSize(
+        choice = widgetSizeOverrides[item.id],
+        providerSize = WidgetGridSize(columnSpan = 1, rowSpan = 1),
+        columns = columns,
+        builtIn = false,
+    ).let { size -> GridItemSize(size.columnSpan, size.rowSpan) }
 
     is HomeItem.Folder -> GridItemSize(
         columnSpan = minOf(item.folder.size.columnSpan, columns),
@@ -1720,6 +1730,7 @@ private fun HomeBoard(
                         is HomeItem.ExternalWidget -> item.descriptor.label.ifBlank { tr("ウィジェット", "Widget") }
                         is HomeItem.PinnedShortcut -> item.shortcut.label
                         is HomeItem.Folder -> item.folder.name
+                        is HomeItem.WebLink -> item.link.label.ifBlank { defaultWebLinkLabel(item.link.url) }
                     },
                     // Keep the outer app node for reorder/long-press, but expose every clickable
                     // child of a populated shortcut presentation as its own TalkBack action.
@@ -1728,12 +1739,15 @@ private fun HomeBoard(
                         is HomeItem.App -> tr("アプリ操作", "App actions")
                         is HomeItem.PinnedShortcut -> tr("ショートカット操作", "Shortcut actions")
                         is HomeItem.Folder -> tr("フォルダ操作", "Folder actions")
+                        is HomeItem.WebLink -> tr("Webリンク操作", "Web link actions")
                         else -> tr("ウィジェット操作", "Widget actions")
                     },
                     accessibilityClickLabel = if (item is HomeItem.Widget && item.widget == HomeWidget.PHOTO) {
                         tr("画像または動画を表示", "Show image or video")
                     } else if (item is HomeItem.PinnedShortcut) {
                         tr("ショートカットを開く", "Open shortcut")
+                    } else if (item is HomeItem.WebLink) {
+                        tr("リンクを開く", "Open link")
                     } else if (item is HomeItem.Folder) {
                         tr("フォルダを開く", "Open folder")
                     } else {
@@ -1752,6 +1766,7 @@ private fun HomeBoard(
                         is HomeItem.ExternalWidget -> tr("サイズ ${widgetSizeLabel(item.id, widgetSizeOverrides, builtIn = false)}", "Size ${widgetSizeLabel(item.id, widgetSizeOverrides, builtIn = false)}")
                         is HomeItem.PinnedShortcut -> tr("ホーム ${items.indexOfFirst { candidate -> candidate.id == item.id } + 1}番目", "Home item ${items.indexOfFirst { candidate -> candidate.id == item.id } + 1}")
                         is HomeItem.Folder -> tr("サイズ ${item.folder.size.label}", "Size ${item.folder.size.label}")
+                        is HomeItem.WebLink -> tr("Webリンク、${item.link.url}", "Web link, ${item.link.url}")
                     },
                     accessibilityReorderActions = accessibilityReorderActions,
                     onClick = when (item) {
@@ -1773,6 +1788,7 @@ private fun HomeBoard(
                         // Nested app cells consume their own taps; the outer action remains the
                         // fallback for empty/background cells and accessibility activation.
                         is HomeItem.Folder -> openFolder
+                        is HomeItem.WebLink -> { { openWebLink(context, item.link) } }
                     },
                     shouldStartDrag = if (item is HomeItem.ExternalWidget) {
                         { pointer -> !pointerIsInsideExternalHost(pointer) }
@@ -1791,6 +1807,7 @@ private fun HomeBoard(
                         is HomeItem.ExternalWidget -> { _ -> onLongPressWidget(item) }
                         is HomeItem.PinnedShortcut -> { _ -> onLongPressPinnedShortcut(item.shortcut) }
                         is HomeItem.Folder -> { _ -> onLongPressFolder(item.folder) }
+                        is HomeItem.WebLink -> { _ -> onLongPressWidget(item) }
                     },
                     onDragStart = onDragStart,
                     onPointerMove = onPointerMove,
@@ -1909,6 +1926,17 @@ private fun HomeBoard(
 
                         is HomeItem.PinnedShortcut -> PinnedShortcutTile(
                             shortcut = item.shortcut,
+                        )
+
+                        is HomeItem.WebLink -> WebLinkTileView(
+                            link = item.link,
+                            posture = posture,
+                            size = homeItemSize(
+                                item = item,
+                                columns = MaxTileColumnSpan,
+                                appTileSizes = appTileSizes,
+                                widgetSizeOverrides = widgetSizeOverrides,
+                            ),
                         )
 
                         is HomeItem.Folder -> FolderTile(

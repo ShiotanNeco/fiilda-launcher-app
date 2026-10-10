@@ -24,36 +24,82 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import java.util.Locale
 
-internal enum class AppTileSize(
+/** Maximum free-form tile footprint on the home grid: six rows by four columns. */
+internal const val MaxTileRowSpan = 6
+internal const val MaxTileColumnSpan = 4
+
+/**
+ * An app tile footprint. Any size from 1×1 to [MaxTileRowSpan]×[MaxTileColumnSpan] is valid; the
+ * named presets keep their historical tokens so stored layouts from earlier versions still load.
+ */
+@androidx.compose.runtime.Immutable
+internal class AppTileSize private constructor(
     val columnSpan: Int,
     val rowSpan: Int,
-    val label: String,
+    private val presetName: String?,
 ) {
-    SMALL(1, 1, "1×1"),
-    // Labels use numeric row×column order; the action sheet supplies a footprint pictogram.
-    WIDE(2, 1, "1×2"),
-    TALL(1, 2, "2×1"),
-    LARGE(2, 2, "2×2"),
-    TALL_3X1(1, 3, "3×1"),
-    TALL_3X2(2, 3, "3×2");
+    /** Labels use numeric row×column order; the action sheet supplies a footprint pictogram. */
+    val label: String get() = "$rowSpan×$columnSpan"
 
-    /** Readable aliases for callers that describe these footprints as vertical sizes. */
+    /** Stable persistence token: the preset name, or `R<rows>C<columns>` for a free size. */
+    val name: String get() = presetName ?: "R${rowSpan}C$columnSpan"
+
+    val isWideRow: Boolean get() = rowSpan == 1 && columnSpan >= 2
+    val isTallPair: Boolean get() = rowSpan == 2 && columnSpan == 1
+    val isSquareBlock: Boolean get() = rowSpan == 2 && columnSpan >= 2
+
+    override fun equals(other: Any?): Boolean =
+        other is AppTileSize && other.columnSpan == columnSpan && other.rowSpan == rowSpan
+
+    override fun hashCode(): Int = rowSpan * 31 + columnSpan
+
+    override fun toString(): String = name
+
     companion object {
+        val SMALL = AppTileSize(1, 1, "SMALL")
+        val WIDE = AppTileSize(2, 1, "WIDE")
+        val TALL = AppTileSize(1, 2, "TALL")
+        val LARGE = AppTileSize(2, 2, "LARGE")
+        val TALL_3X1 = AppTileSize(1, 3, "TALL_3X1")
+        val TALL_3X2 = AppTileSize(2, 3, "TALL_3X2")
+
+        /** Readable aliases for callers that describe these footprints as vertical sizes. */
         val VERTICAL_3X1: AppTileSize
             get() = TALL_3X1
         val VERTICAL_3X2: AppTileSize
             get() = TALL_3X2
+
+        private val presets = listOf(SMALL, WIDE, TALL, LARGE, TALL_3X1, TALL_3X2)
+
+        /** The preset footprints offered as one-tap choices. */
+        fun values(): List<AppTileSize> = presets
+
+        /** A footprint clamped to the supported range; a preset is returned for its own size. */
+        fun of(rows: Int, columns: Int): AppTileSize {
+            val safeRows = rows.coerceIn(1, MaxTileRowSpan)
+            val safeColumns = columns.coerceIn(1, MaxTileColumnSpan)
+            return presets.firstOrNull { it.rowSpan == safeRows && it.columnSpan == safeColumns }
+                ?: AppTileSize(safeColumns, safeRows, null)
+        }
+
+        /** Parses a token written by [name]; unknown tokens throw like an enum lookup. */
+        fun valueOf(token: String): AppTileSize {
+            presets.firstOrNull { it.presetName == token }?.let { return it }
+            val match = FreeSizeToken.matchEntire(token)
+                ?: throw IllegalArgumentException("Unknown app tile size: $token")
+            val rows = match.groupValues[1].toInt()
+            val columns = match.groupValues[2].toInt()
+            require(rows in 1..MaxTileRowSpan && columns in 1..MaxTileColumnSpan) {
+                "App tile size out of range: $token"
+            }
+            return of(rows, columns)
+        }
+
+        private val FreeSizeToken = Regex("R(\\d)C(\\d)")
     }
 }
 
-internal fun AppTileSize.supportsShortcuts(): Boolean = when (this) {
-    AppTileSize.SMALL -> false
-    AppTileSize.WIDE,
-    AppTileSize.TALL,
-    AppTileSize.LARGE,
-    AppTileSize.TALL_3X1,
-    AppTileSize.TALL_3X2 -> true
-}
+internal fun AppTileSize.supportsShortcuts(): Boolean = this != AppTileSize.SMALL
 
 internal data class LaunchableApp(
     val packageName: String,
