@@ -4,14 +4,18 @@ The drawer owns the query text and presents the search results supplied by
 `rememberDrawerSearchController(query, active, refreshToken)`. Search target management is
 available from the Search page inside full-screen Settings opened from a long-press action menu, while the drawer
 only presents results. The controller owns all search metadata, permission rechecks, source
-preferences, document targets, and result opening. Query text and history are never persisted. The search field stays fixed at the bottom of the results viewport and above the launcher navigation/system inset or the on-screen keyboard. Leaving the
+preferences, document targets, and result opening. Query text and history are never persisted. The search field stays fixed at the bottom of the results viewport and above the launcher navigation/system inset or the on-screen keyboard. While the
+bottom bar is shown, the field appears only after the bar's search button is pressed (which also
+opens the drawer from Home and focuses the field) and stays while it holds text; pressing the
+button again, Back, or the Apps tab closes it and clears the query. Without the bar (the inner
+landscape canvas) the field is always shown. Leaving the
 drawer for Home or Settings, or leaving the launcher for an app, a search result, or an external
-search opened from it, clears the query and input focus. Failed app launches leave the query
+search opened from it, clears the query, closes the field, and drops input focus. Failed app launches leave the query
 available for retry.
 
 The results meet the search field in the same way that Home tiles meet the navigation tabs:
-Glass scrolls behind the floating field and blurs the overlapping tiles, with end padding to bring the final row clear of it.
-Opaque themes clip above the field and use the shared 24 dp edge fade. Keyboard and navigation
+every theme scrolls behind the floating field, with end padding to bring the final row clear of it.
+Glass also blurs the overlapping tiles; opaque themes hide them under the field's solid surface. Keyboard and navigation
 insets lift the field without changing this boundary treatment. The search field reserves the
 resting navigation height throughout keyboard motion, so IME dismissal returns directly to the
 resting position without dipping below it. Tabs stay mounted behind the IME and are revealed

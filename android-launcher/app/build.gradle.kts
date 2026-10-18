@@ -24,8 +24,8 @@ android {
         applicationId = "com.fiilda.launcher"
         minSdk = 29
         targetSdk = 36
-        versionCode = 13
-        versionName = "02.9.1"
+        versionCode = 14
+        versionName = "03.0"
     }
 
     signingConfigs {

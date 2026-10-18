@@ -84,7 +84,6 @@ cd android-launcher
 
 - [`android-launcher/README.md`](android-launcher/README.md): features and build details (Japanese)
 - [`android-launcher/ARCHITECTURE.md`](android-launcher/ARCHITECTURE.md): which file owns what
-- [`AGENTS.md`](AGENTS.md): coding principles for this project
 
 Layout fixes for other foldables (Xiaomi, OPPO, Honor, Pixel, …) are very welcome. Please include your device model and screen sizes, and before/after screenshots of the cover and inner screens. Debug builds run much slower than release builds, so judge smoothness with a release or `profiling` build (`./gradlew :app:assembleProfiling`).
 

@@ -135,7 +135,7 @@ class GlassRenderProbeActivity : ComponentActivity() {
                         .graphicsLayer { alpha = contributorAlpha }
                         .glassSceneContributor(
                             scene = scene,
-                            alpha = contributorAlpha,
+                            alpha = { contributorAlpha },
                             cornerRadius = 20.dp,
                             fallbackColor = if (nativeFallback) Color(0xFF263B48) else null,
                             geometryVersion = liveShift,

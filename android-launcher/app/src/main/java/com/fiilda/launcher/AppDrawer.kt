@@ -39,6 +39,13 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.CompositingStrategy
+import kotlin.math.roundToInt
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.text.KeyboardActions
@@ -49,6 +56,13 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +70,9 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -1051,15 +1068,18 @@ internal fun AppDrawer(
     query: String,
     apps: List<LaunchableApp>,
     navigationBottomPadding: Dp = 0.dp,
-    viewportBottomInset: Dp = 0.dp,
     searchController: DrawerSearchController,
     allowSearchTargetPickerWhenInactive: Boolean,
     selectedPackage: String?,
     resetRequest: Int,
+    searchFieldVisible: Boolean,
+    searchFocusRequest: Int,
     onQueryChange: (String) -> Unit,
-    onToggleWideSurface: () -> Unit,
     onLongPressApp: (LaunchableApp) -> Unit,
     onOpenApp: (LaunchableApp) -> Unit,
+    wideRevealKey: Int = 0,
+    wideExitKey: Int = 0,
+    onWideExitFinished: () -> Unit = {},
 ) {
     val drawerGestureSignal = remember { AppDrawerGestureSignal() }
     val drawerGridState = rememberLazyGridState()
@@ -1067,7 +1087,21 @@ internal fun AppDrawer(
         drawerGridState.isScrollInProgress
     }
     val drawerSearchState = searchController.state
+    // Starts as already consumed, so a recreated drawer (for example after a posture change)
+    // does not reopen the keyboard for a search button press that was handled earlier.
+    var consumedSearchFocusRequest by remember { mutableIntStateOf(searchFocusRequest) }
     var appResultsExpanded by remember { mutableStateOf(false) }
+    // Elapsed ms of the wide reveal. It rests at the end, where every tile is drawn normally; a
+    // drawer recreated with an already used key (for example after a posture change) stays put.
+    val wideReveal = remember { Animatable(DrawerRevealDurationMs) }
+    var wideRevealFirstRow by remember { mutableIntStateOf(0) }
+    val seenWideRevealKey = remember { intArrayOf(wideRevealKey) }
+    val seenWideExitKey = remember { intArrayOf(wideExitKey) }
+    var wideRevealExiting by remember { mutableStateOf(false) }
+    // The heading and search follow the tiles from an exit until the reveal settles again, so
+    // coming back mid-exit fades them back in instead of popping them to full.
+    var wideRevealMovesChrome by remember { mutableStateOf(false) }
+    val revealMotionEnabled = LocalLauncherGlassMotionEnabled.current
     var contactsVisibleCount by remember { mutableIntStateOf(5) }
     var filesVisibleCount by remember { mutableIntStateOf(5) }
 
@@ -1122,6 +1156,44 @@ internal fun AppDrawer(
         .asPaddingValues()
         .calculateTopPadding()
     val columns = if (posture == Posture.INNER_LANDSCAPE) 6 else 4
+    LaunchedEffect(wideRevealKey) {
+        val requested = wideRevealKey != seenWideRevealKey[0]
+        seenWideRevealKey[0] = wideRevealKey
+        if (!requested || !revealMotionEnabled || posture != Posture.INNER_LANDSCAPE) return@LaunchedEffect
+        // The header is the grid's first item; start the diagonals at the first visible app row.
+        wideRevealFirstRow = (drawerGridState.firstVisibleItemIndex - 1).coerceAtLeast(0) / columns
+        // Coming back during the exit turns the tiles around from where they are.
+        if (!wideRevealExiting) wideReveal.snapTo(0f)
+        wideReveal.animateTo(
+            DrawerRevealDurationMs,
+            tween((DrawerRevealDurationMs - wideReveal.value).roundToInt(), easing = LinearEasing),
+        )
+        wideRevealMovesChrome = false
+    }
+    // Leaving for Home plays the reveal backwards while the caller keeps this layer shown.
+    LaunchedEffect(wideExitKey) {
+        val requested = wideExitKey != seenWideExitKey[0]
+        seenWideExitKey[0] = wideExitKey
+        if (!requested) return@LaunchedEffect
+        try {
+            if (!revealMotionEnabled || posture != Posture.INNER_LANDSCAPE || query.isNotBlank()) {
+                return@LaunchedEffect
+            }
+            wideRevealFirstRow = (drawerGridState.firstVisibleItemIndex - 1).coerceAtLeast(0) / columns
+            wideRevealExiting = true
+            wideRevealMovesChrome = true
+            wideReveal.animateTo(
+                0f,
+                tween((wideReveal.value * DrawerExitTimeScale).roundToInt(), easing = LinearEasing),
+            )
+            // The layer is hidden now; rest at the end again so tiles draw normally next time.
+            wideReveal.snapTo(DrawerRevealDurationMs)
+            wideRevealMovesChrome = false
+        } finally {
+            wideRevealExiting = false
+            onWideExitFinished()
+        }
+    }
     var drawerHeaderHeightPx by remember { mutableIntStateOf(0) }
     LauncherGlassSceneScope(
         enabled = true,
@@ -1138,29 +1210,28 @@ internal fun AppDrawer(
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
     ) {
-        // adjustNothing leaves the IME over the root. Opaque themes already exclude the
-        // navigation bar from this viewport, so subtract that inset before lifting search.
+        // adjustNothing leaves the IME over the root, so lift search above it.
         val drawerImeBottomPadding = WindowInsets.ime
             .asPaddingValues()
             .calculateBottomPadding()
         val searchBottomPadding = 8.dp + maxOf(
-            (drawerImeBottomPadding - viewportBottomInset).coerceAtLeast(0.dp),
+            drawerImeBottomPadding,
             navigationBottomPadding,
             drawerTrailingPadding,
         )
-        val glassEnabled = LocalLauncherGlass.current.enabled
-        val searchOccupiedHeight = 48.dp + searchBottomPadding
-        val gridBottomPadding = 8.dp + if (glassEnabled) searchOccupiedHeight else NavigationEdgeFadeHeight
+        // A hidden field leaves only the insets it would have sat above.
+        val searchOccupiedHeight = if (searchFieldVisible) {
+            48.dp + searchBottomPadding
+        } else {
+            searchBottomPadding - 8.dp
+        }
+        val gridBottomPadding = 8.dp + searchOccupiedHeight
         val emptyPanelMinHeight = (
             maxHeight -
                 with(LocalDensity.current) { drawerHeaderHeightPx.toDp() } -
-                3.dp - 8.dp - searchOccupiedHeight -
-                (if (glassEnabled) 0.dp else NavigationEdgeFadeHeight)
+                3.dp - 8.dp - searchOccupiedHeight
             ).coerceAtLeast(0.dp)
-        Box(
-            Modifier.fillMaxSize()
-                .padding(bottom = if (glassEnabled) 0.dp else searchOccupiedHeight),
-        ) {
+        Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1183,18 +1254,28 @@ internal fun AppDrawer(
                                 if (drawerHeaderHeightPx != size.height) {
                                     drawerHeaderHeightPx = size.height
                                 }
-                            },
+                            }
+                            .then(
+                                if (posture == Posture.INNER_LANDSCAPE) {
+                                    // On the way out the heading leaves with the top-left tile.
+                                    Modifier.graphicsLayer {
+                                        alpha = if (wideRevealMovesChrome) {
+                                            drawerRevealTileAlpha(drawerRevealTileProgress(0, wideReveal.value))
+                                        } else {
+                                            1f
+                                        }
+                                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            ),
                     ) {
                         // The inset is part of the first lazy item. It protects the header at scroll 0,
                         // then naturally scrolls away so the drawer can pass underneath the status bar.
                         Spacer(modifier = Modifier.height(drawerTopPadding))
                         if (posture == Posture.INNER_LANDSCAPE) {
-                            Header(
-                                showWideSwitcher = true,
-                                page = LauncherPage.DRAWER,
-                                onToggleWideSurface = onToggleWideSurface,
-                                includeTopInset = false,
-                            )
+                            WideSwitcherSpace(includeTopInset = false)
                         }
                         if (query.isBlank()) {
                             ModeHeading(
@@ -1234,7 +1315,7 @@ internal fun AppDrawer(
                         )
                     }
                 } else {
-                    items(items = visibleApps, key = { "drawer-${favoriteId(it)}" }) { app ->
+                    itemsIndexed(items = visibleApps, key = { _, app -> "drawer-${favoriteId(app)}" }) { appIndex, app ->
                         val swayId = "drawer-${favoriteId(app)}"
                         if (drawerFloat != null) {
                             DisposableEffect(drawerFloat, swayId) {
@@ -1242,21 +1323,39 @@ internal fun AppDrawer(
                             }
                         }
                         Box(
-                            modifier = if (drawerFloat != null) {
-                                // Drawer tiles report their live center in root coordinates (its board
-                                // origin stays at zero), measured outside their own float layer.
-                                Modifier
-                                    .onGloballyPositioned { coordinates ->
-                                        val center = coordinates.positionInRoot() + Offset(
-                                            coordinates.size.width / 2f,
-                                            coordinates.size.height / 2f,
-                                        )
-                                        drawerFloat.simulation.place(swayId, center.x, center.y)
+                            modifier = (
+                                if (drawerFloat != null) {
+                                    // Drawer tiles report their live center in root coordinates (its board
+                                    // origin stays at zero), measured outside their own float layer.
+                                    Modifier
+                                        .onGloballyPositioned { coordinates ->
+                                            val center = coordinates.positionInRoot() + Offset(
+                                                coordinates.size.width / 2f,
+                                                coordinates.size.height / 2f,
+                                            )
+                                            drawerFloat.simulation.place(swayId, center.x, center.y)
+                                        }
+                                        .homeFloatOffset(drawerFloat, swayId, enabled = true)
+                                } else {
+                                    Modifier
+                                }
+                            ).then(
+                                if (posture == Posture.INNER_LANDSCAPE) {
+                                    // Read while drawing only, so the reveal never recomposes tiles.
+                                    Modifier.graphicsLayer {
+                                        val order = drawerRevealOrder(appIndex, columns, wideRevealFirstRow)
+                                        val progress = drawerRevealTileProgress(order, wideReveal.value)
+                                        val scale = drawerRevealTileScale(progress)
+                                        scaleX = scale
+                                        scaleY = scale
+                                        alpha = drawerRevealTileAlpha(progress)
+                                        // Fading each draw call avoids an offscreen buffer per tile.
+                                        compositingStrategy = CompositingStrategy.ModulateAlpha
                                     }
-                                    .homeFloatOffset(drawerFloat, swayId, enabled = true)
-                            } else {
-                                Modifier
-                            },
+                                } else {
+                                    Modifier
+                                },
+                            ),
                             propagateMinConstraints = true,
                         ) {
                             AppTile(
@@ -1307,25 +1406,58 @@ internal fun AppDrawer(
                     }
                 }
             }
-            if (!glassEnabled) {
-                LauncherControlEdgeFade(Modifier.align(Alignment.BottomCenter))
-            }
         }
-        Box(
+        val motionEnabled = LocalLauncherGlassMotionEnabled.current
+        AnimatedVisibility(
+            visible = searchFieldVisible,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(bottom = searchBottomPadding),
+                .padding(bottom = searchBottomPadding)
+                .then(
+                    if (posture == Posture.INNER_LANDSCAPE) {
+                        // The wide list always shows search; on the way out it leaves first.
+                        Modifier.graphicsLayer {
+                            alpha = if (wideRevealMovesChrome) {
+                                drawerRevealTileAlpha(drawerRevealTileProgress(DrawerRevealMaxOrder, wideReveal.value))
+                            } else {
+                                1f
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+            enter = if (motionEnabled) fadeIn() + slideInVertically { it / 2 } else EnterTransition.None,
+            exit = if (motionEnabled) fadeOut() + slideOutVertically { it / 2 } else ExitTransition.None,
         ) {
-            BasicSearchField(query = query, onQueryChange = onQueryChange)
+            BasicSearchField(
+                query = query,
+                requestFocus = searchFocusRequest != consumedSearchFocusRequest,
+                onFocusRequested = { consumedSearchFocusRequest = searchFocusRequest },
+                onQueryChange = onQueryChange,
+            )
         }
     }
     }
 }
 
 @Composable
-private fun BasicSearchField(query: String, onQueryChange: (String) -> Unit) {
+private fun BasicSearchField(
+    query: String,
+    requestFocus: Boolean,
+    onFocusRequested: () -> Unit,
+    onQueryChange: (String) -> Unit,
+) {
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(requestFocus) {
+        if (!requestFocus) return@LaunchedEffect
+        // Wait one frame so the field just made visible is attached before it takes focus.
+        withFrameNanos { }
+        if (runCatching { focusRequester.requestFocus() }.isSuccess) keyboardController?.show()
+        onFocusRequested()
+    }
     val glassEnabled = LocalLauncherGlass.current.enabled
     androidx.compose.foundation.text.BasicTextField(
         value = query,
@@ -1341,6 +1473,7 @@ private fun BasicSearchField(query: String, onQueryChange: (String) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
+            .focusRequester(focusRequester)
             .then(
                 if (LocalLauncherGlass.current.enabled) {
                     Modifier.launcherGlassSearchControl(

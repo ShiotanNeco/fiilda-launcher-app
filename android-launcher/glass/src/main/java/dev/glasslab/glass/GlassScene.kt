@@ -59,7 +59,7 @@ class GlassSceneState internal constructor() {
                 GlassSceneOrderEntry(
                     id = record.id,
                     enabled = record.enabled,
-                    alpha = record.alpha,
+                    alpha = record.currentAlpha(),
                     zIndex = record.zIndex,
                     captureReady = record.captureReady,
                     hasFallback = record.fallbackColor != null,
@@ -101,6 +101,7 @@ class GlassSceneState internal constructor() {
         @Suppress("UNUSED_VARIABLE")
         val revision = drawRevision.intValue
         orderedContributors.forEach { record ->
+            val alpha = record.currentAlpha()
             val sourceCoordinates = record.coordinates ?: return@forEach
             if (!sourceCoordinates.isAttached) return@forEach
             val bounds = runCatching {
@@ -142,7 +143,7 @@ class GlassSceneState internal constructor() {
                         val fallback = record.fallbackColor
                         if (fallback != null) {
                             drawRect(
-                                color = fallback.copy(alpha = fallback.alpha * record.alpha),
+                                color = fallback.copy(alpha = fallback.alpha * alpha),
                                 size = Size(
                                     sourceCoordinates.size.width.toFloat(),
                                     sourceCoordinates.size.height.toFloat(),
@@ -151,7 +152,7 @@ class GlassSceneState internal constructor() {
                         } else {
                             drawLayerWithAlpha(
                                 layer = record.layer,
-                                alpha = record.alpha,
+                                alpha = alpha,
                                 sourceBounds = Rect(
                                     left = 0f,
                                     top = 0f,
@@ -219,6 +220,9 @@ internal fun orderedVisibleGlassContributors(
     .sortedWith(compareBy<GlassSceneOrderEntry> { it.zIndex }.thenBy { it.id })
     .map { it.id }
 
+/** Contributor opacity is a provider read while drawing; this is the fully opaque one. */
+val FullGlassAlpha: () -> Float = { 1f }
+
 @Composable
 fun rememberGlassScene(): GlassSceneState = remember { GlassSceneState() }
 
@@ -227,7 +231,7 @@ internal class GlassSceneContributorRecord(
     val layer: GraphicsLayer,
 ) {
     var enabled by mutableStateOf(true)
-    var alpha by mutableStateOf(1f)
+    var alpha by mutableStateOf(FullGlassAlpha)
     var zIndex by mutableStateOf(0f)
     var fallbackColor by mutableStateOf<Color?>(null)
     var geometryVersion by mutableStateOf<Any?>(null)
@@ -238,26 +242,28 @@ internal class GlassSceneContributorRecord(
 
     fun update(
         enabled: Boolean,
-        alpha: Float,
+        alpha: () -> Float,
         zIndex: Float,
         fallbackColor: Color?,
         geometryVersion: Any?,
         cornerRadiusPx: Float,
     ): Boolean {
-        val safeAlpha = alpha.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 1f
         val safeZIndex = zIndex.takeIf { it.isFinite() } ?: 0f
         val safeCornerRadius = cornerRadiusPx.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 0f
-        val changed = this.enabled != enabled || this.alpha != safeAlpha ||
+        val changed = this.enabled != enabled || this.alpha != alpha ||
             this.zIndex != safeZIndex || this.fallbackColor != fallbackColor ||
             this.geometryVersion != geometryVersion || this.cornerRadiusPx != safeCornerRadius
         this.enabled = enabled
-        this.alpha = safeAlpha
+        this.alpha = alpha
         this.zIndex = safeZIndex
         this.fallbackColor = fallbackColor
         this.geometryVersion = geometryVersion
         this.cornerRadiusPx = safeCornerRadius
         return changed
     }
+
+    /** Read while drawing, so a fading ancestor does not recompose every contributor. */
+    fun currentAlpha(): Float = alpha().takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 1f
 
     fun updateCoordinates(coordinates: LayoutCoordinates): Boolean {
         val snapshot = GlassContributorGeometrySnapshot(
@@ -289,7 +295,7 @@ private data class GlassContributorGeometrySnapshot(
 private fun Modifier.glassSceneContributorImpl(
     scene: GlassSceneState,
     enabled: Boolean,
-    alpha: Float,
+    alpha: () -> Float,
     zIndex: Float,
     fallbackColor: Color?,
     geometryVersion: Any?,
@@ -354,7 +360,7 @@ private fun Modifier.glassSceneContributorImpl(
 fun Modifier.glassSceneContributor(
     scene: GlassSceneState,
     enabled: Boolean = true,
-    alpha: Float = 1f,
+    alpha: () -> Float = FullGlassAlpha,
     zIndex: Float = 0f,
     fallbackColor: Color? = null,
     geometryVersion: Any? = null,

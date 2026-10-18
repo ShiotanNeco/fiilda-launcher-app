@@ -1,6 +1,7 @@
 package com.fiilda.launcher
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -152,6 +153,24 @@ class LauncherNavigationTest {
             launcherDrawerTabStateDescription(active = true),
         )
         assertEquals("", launcherDrawerTabStateDescription(active = false))
+    }
+
+    @Test
+    fun searchButtonAccessibilityExplainsOpenAndClose() {
+        assertEquals("アプリ・Web・端末内を検索", launcherSearchButtonActionLabel(active = false))
+        assertEquals("検索を閉じる", launcherSearchButtonActionLabel(active = true))
+        assertEquals("検索欄を表示中", launcherSearchButtonStateDescription(active = true))
+        assertEquals("", launcherSearchButtonStateDescription(active = false))
+    }
+
+    @Test
+    fun drawerSearchFieldAppearsOnlyOnRequestWhileTheBarIsShown() {
+        assertFalse(drawerSearchFieldVisible(navigationVisible = true, searchOpen = false, query = ""))
+        assertTrue(drawerSearchFieldVisible(navigationVisible = true, searchOpen = true, query = ""))
+        // Typed text keeps the field, so it cannot hide a query the user can no longer clear.
+        assertTrue(drawerSearchFieldVisible(navigationVisible = true, searchOpen = false, query = "map"))
+        // The inner landscape canvas has no bar and therefore no search button.
+        assertTrue(drawerSearchFieldVisible(navigationVisible = false, searchOpen = false, query = ""))
     }
 
     @Test
@@ -556,5 +575,33 @@ class LauncherNavigationTest {
             launcherSurfaceLayerZIndex(LauncherPage.DRAWER, LauncherPage.DRAWER) >
                 launcherSurfaceLayerZIndex(LauncherPage.DRAWER, LauncherPage.HOME),
         )
+    }
+
+    @Test
+    fun contextBarTakesAboutHalfTheWidthWithinLimits() {
+        // 266dp is the bar's width at scale 1.
+        assertEquals(555 * 0.5f, contextBarScale(555) * 266, 1f)
+        assertEquals(1.4f, contextBarScale(1088), 0f)
+        // The lower limit keeps the search button at 48dp, the minimum touch target.
+        assertEquals(0.75f, contextBarScale(374), 0f)
+    }
+
+    @Test
+    fun barGlyphsFollowEachWidgetLanguage() {
+        assertEquals(ContextBarIconStyle.OUTLINED, contextBarIconStyle(WidgetLanguage.KEYBOARD, active = true))
+        assertEquals(ContextBarIconStyle.SHARP, contextBarIconStyle(WidgetLanguage.NISHIKIGOI, active = false))
+        assertEquals(ContextBarIconStyle.OUTLINED, contextBarIconStyle(WidgetLanguage.METRO, active = true))
+        assertEquals(ContextBarIconStyle.FILLED, contextBarIconStyle(WidgetLanguage.MATERIAL, active = true))
+        assertEquals(ContextBarIconStyle.OUTLINED, contextBarIconStyle(WidgetLanguage.MATERIAL, active = false))
+        assertEquals(ContextBarIconStyle.ROUNDED, contextBarIconStyle(WidgetLanguage.GLASS, active = false))
+    }
+
+    @Test
+    fun wideSwitcherShowsTheLogoAtZeroAndTheHouseAtOneWithAnOverlap() {
+        assertEquals(1f, wideSwitcherLogoAssembly(0f), 0f)
+        assertEquals(0f, wideSwitcherHouseProgress(0f), 0f)
+        assertEquals(0f, wideSwitcherLogoAssembly(1f), 0f)
+        assertEquals(1f, wideSwitcherHouseProgress(1f), 0f)
+        assertTrue(wideSwitcherLogoAssembly(0.5f) > 0f && wideSwitcherHouseProgress(0.5f) > 0f)
     }
 }

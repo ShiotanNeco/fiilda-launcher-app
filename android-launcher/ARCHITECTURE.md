@@ -30,7 +30,8 @@ app info screen so a package-delete intent cannot remove the personal copy.
 | `HomeWidgets.kt` | Widget tile dispatch plus photo, media, pinned shortcut, and external widget tiles |
 | `AppDrawer.kt` | App grid/tile rendering, shortcut projections, and drawer search |
 | `LauncherDialogs.kt` | Home action sheets and built-in/provider widget picker dialogs |
-| `LauncherSharedUi.kt` | Header, context bar, tile primitives, icon mapping, and display helpers |
+| `LauncherSharedUi.kt` | Header, context bar (tab capsule, page dots, search button), tile primitives, icon mapping, and display helpers |
+| `FiiLDALogoIcon.kt` | The FiiLDA tile logo drawn as the Apps icon, with its bottom-left wave animation |
 | `LauncherThemeSurface.kt` | Palette accessors and the root theme boundary |
 | `SystemTheme.kt` | Persisted light/dark theme choices and system-mode theme resolution |
 | `ThemeRotation.kt` | Timed theme rotation and alarm scheduling |

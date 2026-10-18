@@ -132,10 +132,13 @@ class GlassBackdropState internal constructor(internal val layer: androidx.compo
     internal val snapshotRevision = mutableIntStateOf(0)
     internal var snapshotSize = IntSize.Zero
 
-    /** The pre-blurred backdrop for [blurPx], or null until it has been rendered. */
+    /**
+     * The pre-blurred backdrop for [blurPx], or null until it has been rendered. Radius 0 is a
+     * plain copy: without it a zero-blur style re-renders every surface's patch offscreen.
+     */
     internal fun blurredSnapshot(blurPx: Float): ImageBitmap? {
         val key = blurPx.roundToInt()
-        if (key <= 0) return null
+        if (key < 0) return null
         Snapshot.withoutReadObservation {
             if (key !in requestedBlurRadii) requestedBlurRadii += key
         }
@@ -198,7 +201,9 @@ fun GlassBackdrop(
                 val blurLayer = graphicsContext.createGraphicsLayer()
                 try {
                     blurLayer.record(density, layoutDirection, size) { drawLayer(state.layer) }
-                    blurLayer.renderEffect = BlurEffect(radius.toFloat(), radius.toFloat(), TileMode.Clamp)
+                    if (radius > 0) {
+                        blurLayer.renderEffect = BlurEffect(radius.toFloat(), radius.toFloat(), TileMode.Clamp)
+                    }
                     val rendered = runCatching { blurLayer.toImageBitmap() }.getOrNull() ?: continue
                     // Keep the shared image on the GPU; a software bitmap is re-uploaded every
                     // time a surface draws it.

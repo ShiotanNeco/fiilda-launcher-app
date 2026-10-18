@@ -33,6 +33,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.glasslab.glass.FullGlassAlpha
 import dev.glasslab.glass.GlassBackdrop
 import dev.glasslab.glass.glassSceneContributor
 import dev.glasslab.glass.glassSurface
@@ -74,7 +75,7 @@ internal interface LauncherGlassContext {
     fun contributorModifier(
         modifier: Modifier,
         enabled: Boolean,
-        alpha: Float,
+        alpha: () -> Float,
         zIndex: Float,
         fallbackColor: Color?,
         geometryVersion: Any?,
@@ -100,7 +101,7 @@ private object DisabledLauncherGlassContext : LauncherGlassContext {
     override fun contributorModifier(
         modifier: Modifier,
         enabled: Boolean,
-        alpha: Float,
+        alpha: () -> Float,
         zIndex: Float,
         fallbackColor: Color?,
         geometryVersion: Any?,
@@ -121,7 +122,7 @@ internal val LocalLauncherGlass = compositionLocalOf<LauncherGlassContext> {
  */
 internal data class LauncherGlassSceneScopeState(
     val enabled: Boolean,
-    val alpha: Float = 1f,
+    val alpha: () -> Float = FullGlassAlpha,
     val zIndex: Float = 0f,
     val geometryVersion: Any? = null,
 )
@@ -137,6 +138,20 @@ private data class LauncherGlassGeometryScopeVersion(
     override fun read(): Any? = resolveGlassGeometry(parent) to resolveGlassGeometry(local)
 }
 
+// Equal by its parts, so recomposing a scope or contributor does not re-register its alpha.
+private data class LauncherGlassScopedAlpha(
+    val parent: () -> Float,
+    val local: () -> Float,
+) : () -> Float {
+    override fun invoke(): Float = parent() * local()
+}
+
+private fun combineLauncherGlassAlpha(parent: (() -> Float)?, local: () -> Float): () -> Float = when {
+    parent == null || parent === FullGlassAlpha -> local
+    local === FullGlassAlpha -> parent
+    else -> LauncherGlassScopedAlpha(parent = parent, local = local)
+}
+
 private fun combineLauncherGlassGeometry(parent: Any?, local: Any?): Any? = when {
     parent == null -> local
     local == null -> parent
@@ -146,7 +161,7 @@ private fun combineLauncherGlassGeometry(parent: Any?, local: Any?): Any? = when
 @Composable
 internal fun LauncherGlassSceneScope(
     enabled: Boolean,
-    alpha: Float = 1f,
+    alpha: () -> Float = FullGlassAlpha,
     zIndex: Float = 0f,
     geometryVersion: Any? = null,
     content: @Composable () -> Unit,
@@ -160,7 +175,7 @@ internal fun LauncherGlassSceneScope(
     CompositionLocalProvider(
         LocalLauncherGlassSceneScope provides LauncherGlassSceneScopeState(
             enabled = inheritedEnabled && enabled,
-            alpha = ((parent?.alpha ?: 1f) * alpha).coerceIn(0f, 1f),
+            alpha = combineLauncherGlassAlpha(parent = parent?.alpha, local = alpha),
             zIndex = (parent?.zIndex ?: 0f) + zIndex,
             geometryVersion = combinedGeometry,
         ),
@@ -176,7 +191,6 @@ internal val LocalLauncherGlassGeometryVersion = compositionLocalOf<Any?> { null
 internal val LocalLauncherGlassMotionEnabled = compositionLocalOf { true }
 
 private val GlassTileCornerRadius = LauncherTileCornerRadius
-private val GlassNavigationCornerRadius = LauncherNavigationCornerRadius
 private val GlassFolderCornerRadius = LauncherFolderSheetCornerRadius
 private val GlassSearchCornerRadius = LauncherSearchControlCornerRadius
 
@@ -253,7 +267,7 @@ internal fun LauncherGlassHost(
                 override fun contributorModifier(
                     modifier: Modifier,
                     enabled: Boolean,
-                    alpha: Float,
+                    alpha: () -> Float,
                     zIndex: Float,
                     fallbackColor: Color?,
                     geometryVersion: Any?,
@@ -378,6 +392,7 @@ internal fun Modifier.launcherGlassTile(
 /** Applies the floating rounded navigation surface. */
 @Composable
 internal fun Modifier.launcherGlassNavigation(
+    cornerRadius: Dp,
     fallbackColor: Color? = null,
     sceneEnabled: Boolean = true,
     geometryVersion: Any? = null,
@@ -385,7 +400,7 @@ internal fun Modifier.launcherGlassNavigation(
     modifier = this,
     kind = LauncherGlassSurfaceKind.NAVIGATION,
     fallbackColor = fallbackColor,
-    cornerRadius = GlassNavigationCornerRadius,
+    cornerRadius = cornerRadius,
     sceneEnabled = sceneEnabled,
     geometryVersion = geometryVersion ?: LocalLauncherGlassGeometryVersion.current,
 )
@@ -426,7 +441,6 @@ internal fun Modifier.launcherGlassSearchControl(
 @Composable
 internal fun Modifier.launcherGlassContributor(
     enabled: Boolean = true,
-    alpha: Float = 1f,
     zIndex: Float = 0f,
     fallbackColor: Color? = null,
     geometryVersion: Any? = null,
@@ -434,7 +448,7 @@ internal fun Modifier.launcherGlassContributor(
 ): Modifier = LocalLauncherGlass.current.contributorModifier(
     modifier = this,
     enabled = enabled && (LocalLauncherGlassSceneScope.current?.enabled == true),
-    alpha = alpha * (LocalLauncherGlassSceneScope.current?.alpha ?: 1f),
+    alpha = LocalLauncherGlassSceneScope.current?.alpha ?: FullGlassAlpha,
     zIndex = zIndex + (LocalLauncherGlassSceneScope.current?.zIndex ?: 0f),
     fallbackColor = fallbackColor,
     geometryVersion = combineLauncherGlassGeometry(

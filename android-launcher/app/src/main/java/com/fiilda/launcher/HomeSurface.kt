@@ -2,6 +2,7 @@ package com.fiilda.launcher
 
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.runtime.CompositionLocalProvider
+import dev.glasslab.glass.FullGlassAlpha
 import dev.glasslab.glass.GlassGeometrySignal
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
@@ -69,6 +70,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -109,7 +111,6 @@ internal fun HomeSurface(
     posture: Posture,
     isVisible: Boolean,
     glassSceneEnabled: Boolean = true,
-    glassSceneAlpha: Float = 1f,
     glassSceneZIndex: Float = 0f,
     glassSceneGeometryVersion: Any? = null,
     navigationBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
@@ -299,7 +300,6 @@ internal fun HomeSurface(
                 onCommitOrder = { updated -> currentOnCommitOrder.value(homePageIndex, updated) },
                 onCancelOrder = { currentOnCancelOrder.value(homePageIndex) },
                 glassSceneEnabled = glassSceneEnabled,
-                glassSceneAlpha = glassSceneAlpha,
                 glassSceneZIndex = glassSceneZIndex,
                 glassSceneGeometryVersion = glassSceneGeometryVersion,
                 homeFloat = homeFloat,
@@ -314,7 +314,6 @@ internal fun HomeSurface(
                 StartCanvas(
                     isVisible = isVisible,
                     glassSceneEnabled = glassSceneEnabled,
-                    glassSceneAlpha = glassSceneAlpha,
                     glassSceneZIndex = glassSceneZIndex,
                     glassSceneGeometryVersion = glassSceneGeometryVersion,
                     now = now,
@@ -480,7 +479,6 @@ internal fun HomeSurface(
 private fun StartCanvas(
     isVisible: Boolean,
     glassSceneEnabled: Boolean = true,
-    glassSceneAlpha: Float = 1f,
     glassSceneZIndex: Float = 0f,
     glassSceneGeometryVersion: Any? = null,
     now: LocalDateTime,
@@ -779,6 +777,23 @@ private fun StartCanvas(
                 )
             }
         }
+        // Without overscan: the Home pop-in starts at the bottom-right cell actually on screen.
+        val revealColumnWindow by remember(
+            rowState,
+            viewportWidthPx,
+            cellStridePx,
+            estimatedHomePlan.columns,
+        ) {
+            derivedStateOf {
+                homeGridColumnWindow(
+                    scrollOffsetPx = rowState.firstVisibleItemScrollOffset,
+                    viewportWidthPx = viewportWidthPx,
+                    cellStridePx = cellStridePx,
+                    totalColumns = estimatedHomePlan.columns,
+                    overscanColumns = 0,
+                )
+            }
+        }
         val homeCanvasWidth = maxOf(
             viewportWidth,
             with(density) {
@@ -861,13 +876,13 @@ private fun StartCanvas(
                         homeDragCoordinator = homeDragCoordinator,
                         edgeDragReevaluation = edgeDragReevaluation,
                         horizontalVisibleColumnWindow = visibleCanvasColumnWindow,
+                        revealColumns = { revealColumnWindow },
                         homeFloat = homeFloat,
                         onPreviewOrder = onPreviewOrder,
                         onCommitOrder = onCommitOrder,
                         onCancelOrder = onCancelOrder,
                         onEdgeAutoScroll = updateEdgeScrollDirection,
                         glassSceneEnabled = glassSceneEnabled,
-                        glassSceneAlpha = glassSceneAlpha,
                         glassSceneZIndex = glassSceneZIndex,
                         glassSceneGeometryVersion = glassSceneGeometryVersion,
                     )
@@ -995,7 +1010,6 @@ private fun HomeBoard(
     posture: Posture,
     isVisible: Boolean = true,
     glassSceneEnabled: Boolean = true,
-    glassSceneAlpha: Float = 1f,
     glassSceneZIndex: Float = 0f,
     glassSceneGeometryVersion: Any? = null,
     now: LocalDateTime,
@@ -1035,6 +1049,7 @@ private fun HomeBoard(
     homeDragCoordinator: HomeDragCoordinator,
     edgeDragReevaluation: HomeDragReevaluationHolder? = null,
     horizontalVisibleColumnWindow: IntRange? = null,
+    revealColumns: (() -> IntRange)? = null,
     onPreviewOrder: (List<String>) -> Unit,
     onCommitOrder: (List<String>) -> Unit,
     onCancelOrder: () -> Unit,
@@ -1042,6 +1057,8 @@ private fun HomeBoard(
     homeFloat: HomeFloatState? = null,
 ) {
     val isHorizontalStartCanvas = posture == Posture.INNER_LANDSCAPE
+    val homeReveal = LocalWideHomeReveal.current.takeIf { isHorizontalStartCanvas }
+    val revealMotionEnabled = LocalLauncherGlassMotionEnabled.current
     val columns = if (posture == Posture.COVER) 4 else 6
     val fixedCanvasRows = 6
     val context = LocalContext.current
@@ -1715,6 +1732,31 @@ private fun HomeBoard(
                             },
                         )
                         .then(
+                            if (homeReveal != null && revealColumns != null && revealMotionEnabled && !isDragged) {
+                                val columnEnd = placement.column + placement.columnSpan - 1
+                                val rowEnd = placement.row + placement.rowSpan - 1
+                                // A provider view ignores per-draw alpha, so a widget fades as a layer.
+                                val strategy = if (item is HomeItem.ExternalWidget) {
+                                    CompositingStrategy.Auto
+                                } else {
+                                    CompositingStrategy.ModulateAlpha
+                                }
+                                Modifier.graphicsLayer {
+                                    val elapsed = homeReveal.elapsed.value
+                                    if (elapsed >= DrawerRevealDurationMs) return@graphicsLayer
+                                    val order = homeRevealOrder(columnEnd, rowEnd, revealColumns(), gridPlan.rows)
+                                    val progress = drawerRevealTileProgress(order, elapsed)
+                                    val scale = drawerRevealTileScale(progress)
+                                    scaleX = scale
+                                    scaleY = scale
+                                    alpha = drawerRevealTileAlpha(progress)
+                                    compositingStrategy = strategy
+                                }
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .then(
                             if (folderDropTargetId == item.id) {
                                 Modifier.border(2.dp, FiiLDACyan, LauncherTileShape)
                             } else {
@@ -1919,7 +1961,6 @@ private fun HomeBoard(
                             // Root-level scene scope owns transition alpha/z/geometry. Keep the
                             // native fallback contributor's local values neutral so they are not
                             // multiplied twice when HomeSurface is nested in that scope.
-                            glassSceneAlpha = 1f,
                             glassSceneZIndex = 0f,
                             glassSceneGeometryVersion = null,
                         )
@@ -2423,7 +2464,7 @@ private fun HomeDragItem(
         ) {
             LauncherGlassSceneScope(
                 enabled = !hiddenFromInteraction,
-                alpha = if (glassEnabledForDrag && state.draggedId == id) 0.94f else 1f,
+                alpha = if (glassEnabledForDrag && state.draggedId == id) DraggedGlassAlpha else FullGlassAlpha,
                 zIndex = if (state.draggedId == id) 2f else 0f,
                 geometryVersion = glassDragGeometry,
                 content = content,
@@ -2460,4 +2501,7 @@ private fun EmptyHomePageHint(modifier: Modifier) {
 
 /** False on a Home page that is composed but not shown (a pager neighbor or a hidden surface). */
 internal val LocalHomeBoardVisible = androidx.compose.runtime.compositionLocalOf { true }
+
+/** Matches the lifted tile's own 0.94 layer alpha in the navigation glass scene. */
+private val DraggedGlassAlpha: () -> Float = { 0.94f }
 

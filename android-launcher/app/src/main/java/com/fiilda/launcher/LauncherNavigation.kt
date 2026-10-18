@@ -90,6 +90,31 @@ internal fun launcherDrawerTabStateDescription(active: Boolean): String = if (ac
     ""
 }
 
+/** State text for the search button beside the tabs. */
+internal fun launcherSearchButtonStateDescription(active: Boolean): String = if (active) {
+    tr("検索欄を表示中", "Search field shown")
+} else {
+    ""
+}
+
+/** Accessibility copy for the search button's action in each state. */
+internal fun launcherSearchButtonActionLabel(active: Boolean): String = if (active) {
+    tr("検索を閉じる", "Close search")
+} else {
+    tr("アプリ・Web・端末内を検索", "Search apps, web, and device")
+}
+
+/**
+ * Whether the drawer shows its search field. With the bottom bar, the field appears only after
+ * the search button is pressed, and stays while it holds text (for example across a posture
+ * change). Without the bar (the inner landscape canvas) it is always shown.
+ */
+internal fun drawerSearchFieldVisible(
+    navigationVisible: Boolean,
+    searchOpen: Boolean,
+    query: String,
+): Boolean = !navigationVisible || searchOpen || query.isNotEmpty()
+
 /** Returns the bottom-bar items for a home presentation in their visual order. */
 internal fun launcherContextDestinations(
     presentation: LauncherHomePresentation,

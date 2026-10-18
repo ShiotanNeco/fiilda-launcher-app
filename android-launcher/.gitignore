@@ -2,6 +2,7 @@
 /local.properties
 /build
 /app/build
+/glass/build
 /captures
 .externalNativeBuild
 .cxx

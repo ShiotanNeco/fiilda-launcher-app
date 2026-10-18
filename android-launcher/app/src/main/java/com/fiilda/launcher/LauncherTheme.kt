@@ -539,12 +539,10 @@ internal fun Modifier.launcherBorder(
 
 /** Corner radii shared by every theme. Glass defined them first; the other themes follow it. */
 internal val LauncherTileCornerRadius = 20.dp
-internal val LauncherNavigationCornerRadius = 28.dp
 internal val LauncherFolderSheetCornerRadius = 28.dp
 internal val LauncherSearchControlCornerRadius = 20.dp
 
 internal val LauncherTileShape = RoundedCornerShape(LauncherTileCornerRadius)
-internal val LauncherNavigationShape = RoundedCornerShape(LauncherNavigationCornerRadius)
 internal val LauncherFolderSheetShape = RoundedCornerShape(LauncherFolderSheetCornerRadius)
 internal val LauncherSearchControlShape = RoundedCornerShape(LauncherSearchControlCornerRadius)
 

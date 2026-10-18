@@ -18,10 +18,12 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
@@ -158,7 +160,9 @@ private fun Modifier.launcherSurfaceVisual(
     blurRadiusDp: () -> Float,
 ): Modifier {
     if (!enabled) return this
-    return this.graphicsLayer {
+    // A blurred layer is clipped to its bounds, so widen it over the side margins that Home and
+    // the drawer draw into; otherwise their outer tiles would only appear once the blur ends.
+    return this.extendIntoSideMargin().graphicsLayer {
         val currentAlpha = alpha()
         this.alpha = currentAlpha
         val currentScale = scale()
@@ -171,7 +175,7 @@ private fun Modifier.launcherSurfaceVisual(
         val blur = currentAlpha > 0f && radius > 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         renderEffect = if (blur) BlurEffect(radius, radius, TileMode.Clamp) else null
         clip = blur
-    }
+    }.padding(horizontal = LauncherHorizontalMargin)
 }
 
 /** Animated surface values, read through [State] so only drawing observes each frame. */
@@ -255,9 +259,27 @@ internal fun FiiLDALauncher(
     var page by rememberSaveable(stateSaver = LauncherPageSaver) {
         mutableStateOf(LauncherPage.HOME)
     }
+    // Bumped each time the wide posture switches to the app list, so its tiles pop in.
+    var wideDrawerRevealKey by remember { mutableIntStateOf(0) }
+    // Bumped when the wide app list switches to Home; the list stays shown until its tiles leave.
+    var wideDrawerExitKey by remember { mutableIntStateOf(0) }
+    var wideDrawerExiting by remember { mutableStateOf(false) }
+    // Home's tiles pop in from the opposite corner while the app list's tiles leave.
+    val wideHomeReveal = remember { WideHomeReveal() }
+    LaunchedEffect(wideDrawerExitKey) {
+        if (wideDrawerExitKey == 0) return@LaunchedEffect
+        wideHomeReveal.elapsed.snapTo(0f)
+        wideHomeReveal.elapsed.animateTo(
+            DrawerRevealDurationMs,
+            tween(DrawerRevealDurationMs.toInt(), easing = LinearEasing),
+        )
+    }
     var contextMode by remember { mutableStateOf(ContextMode.GLANCE) }
     var query by remember { mutableStateOf("") }
     var drawerResetRequest by remember { mutableIntStateOf(0) }
+    // The bottom bar's search button opens the drawer's search field; it is hidden otherwise.
+    var drawerSearchOpen by remember { mutableStateOf(false) }
+    var drawerSearchFocusRequest by remember { mutableIntStateOf(0) }
     var selectedPackage by remember { mutableStateOf<String?>(null) }
     var actionApp by remember { mutableStateOf<LaunchableApp?>(null) }
     var actionAppHomePage by remember { mutableStateOf<Int?>(null) }
@@ -332,6 +354,7 @@ internal fun FiiLDALauncher(
             )
         ) {
             query = ""
+            drawerSearchOpen = false
             drawerResetRequest++
             focusManager.clearFocus(force = true)
             keyboardController?.hide()
@@ -341,6 +364,11 @@ internal fun FiiLDALauncher(
                 if (page == LauncherPage.DRAWER && destination == LauncherDestination.HOME) {
                     focusManager.clearFocus(force = true)
                     keyboardController?.hide()
+                }
+                if (page != LauncherPage.DRAWER && destination == LauncherDestination.DRAWER) wideDrawerRevealKey++
+                if (page == LauncherPage.DRAWER && destination == LauncherDestination.HOME) {
+                    wideDrawerExiting = true
+                    wideDrawerExitKey++
                 }
                 page = destination.page
                 wideCanvasAnchor = destination
@@ -369,6 +397,32 @@ internal fun FiiLDALauncher(
             // path, so they cannot duplicate the feedback while the pager settles.
             launcherView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         }
+    }
+
+    fun closeDrawerSearch() {
+        query = ""
+        drawerSearchOpen = false
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
+
+    fun toggleDrawerSearch(presentation: LauncherHomePresentation) {
+        launcherView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        if (page == LauncherPage.DRAWER &&
+            drawerSearchFieldVisible(navigationVisible = true, searchOpen = drawerSearchOpen, query = query)
+        ) {
+            closeDrawerSearch()
+            return
+        }
+        if (page != LauncherPage.DRAWER) {
+            navigateToDestination(
+                destination = LauncherDestination.DRAWER,
+                withHaptic = false,
+                presentation = presentation,
+            )
+        }
+        drawerSearchOpen = true
+        drawerSearchFocusRequest++
     }
 
     LaunchedEffect(homeIntentRequest) {
@@ -930,6 +984,7 @@ internal fun FiiLDALauncher(
     LaunchedEffect(page, showSettingsScreen) {
         if (page != LauncherPage.DRAWER || showSettingsScreen) {
             query = ""
+            drawerSearchOpen = false
             focusManager.clearFocus(force = true)
             keyboardController?.hide()
         }
@@ -939,6 +994,7 @@ internal fun FiiLDALauncher(
     // launch animation. A failed launch keeps the launcher visible and the query for a retry.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         query = ""
+        drawerSearchOpen = false
         focusManager.clearFocus(force = true)
     }
     LaunchedEffect(page) {
@@ -1805,7 +1861,12 @@ internal fun FiiLDALauncher(
         val currentPresentation = launcherHomePresentationFor(
             currentPosture,
         )
-        if (currentPresentation == LauncherHomePresentation.START_CANVAS &&
+        if (currentPresentation != LauncherHomePresentation.START_CANVAS &&
+            page == LauncherPage.DRAWER &&
+            drawerSearchFieldVisible(navigationVisible = true, searchOpen = drawerSearchOpen, query = query)
+        ) {
+            closeDrawerSearch()
+        } else if (currentPresentation == LauncherHomePresentation.START_CANVAS &&
             page == LauncherPage.DRAWER
         ) {
             page = LauncherPage.HOME
@@ -1886,17 +1947,11 @@ internal fun FiiLDALauncher(
                     if (navigationBarHeightPx > 0) {
                         with(LocalDensity.current) { navigationBarHeightPx.toDp() }
                     } else {
-                        61.dp + navigationSafeBottom
+                        val barScale = contextBarScale(LocalConfiguration.current.screenWidthDp)
+                        contextBarEstimatedHeight(barScale) + navigationSafeBottom
                     }
                 } else {
                     0.dp
-                }
-                // Glass scrolls content under the whole bar; the opaque themes stop above it and
-                // only need room for the edge fade so the last row can scroll fully into view.
-                val navigationScrollPadding = when {
-                    glassEnabled -> navigationOcclusion
-                    navigationVisible -> NavigationEdgeFadeHeight
-                    else -> 0.dp
                 }
                 // A posture or destination change can produce one composition before the
                 // cleanup effect runs. Do not hide the source or render an overlay from the old
@@ -1965,10 +2020,8 @@ internal fun FiiLDALauncher(
                     androidx.compose.foundation.layout.BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxSize()
-                            // Legacy themes keep their original viewport above the bar. Glass
-                            // extends below the same sibling bar, with padding inside each scroll
-                            // container instead. The content call site stays stable across themes.
-                            .padding(bottom = if (glassEnabled) 0.dp else navigationOcclusion)
+                            // Content extends below the floating bar in every theme, with padding
+                            // inside each scroll container, so it shows beside the capsule.
                             .clipToBoundsWithSideMargin()
                             .launcherGlassBaseBackground(FiiLDABlack),
                     ) {
@@ -2086,23 +2139,31 @@ internal fun FiiLDALauncher(
                     }
                     val homeOffset: () -> IntOffset = { if (wide) IntOffset.Zero else animatedHomeOffset.value }
                     val drawerOffset: () -> IntOffset = { if (wide) IntOffset.Zero else animatedDrawerOffset.value }
-                    // Scene membership changes only at the ends of a transition, and the scene
-                    // alpha is coarse, so contributors recompose a few times rather than per frame.
+                    // While its tiles leave, the wide app list stays fully shown above Home, without
+                    // its backing so Home fades in behind it. Its glass scene copy still fades.
+                    val wideDrawerHeld = wide && wideDrawerExiting && page == LauncherPage.HOME
+                    // Home starts blurred under the leaving list and sharpens as its tiles pop in.
+                    val homeVisualBlurRadiusDp: () -> Float = {
+                        val reveal = if (wide && !reduceMotion) homeRevealBlurDp(wideHomeReveal.elapsed.value) else 0f
+                        maxOf(homeBlurRadiusDp(), reveal)
+                    }
+                    val drawerVisualAlpha: () -> Float = { if (wideDrawerHeld) 1f else drawerAlpha() }
+                    val drawerVisualScale: () -> Float = { if (wideDrawerHeld) 1f else drawerScale() }
+                    val drawerVisualBlurRadiusDp: () -> Float = { if (wideDrawerHeld) 0f else drawerBlurRadiusDp() }
+                    // The scene reads each layer's alpha while drawing and skips a transparent
+                    // one, so a fade never recomposes the tiles. Membership changes only when the
+                    // narrow slide moves a layer fully off screen.
                     val homeSceneVisible by remember(animatedSurfaceStates, viewportWidthPx, wide) {
-                        derivedStateOf { homeAlpha() > 0f && kotlin.math.abs(homeOffset().x) < viewportWidthPx }
+                        derivedStateOf { kotlin.math.abs(homeOffset().x) < viewportWidthPx }
                     }
                     val drawerSceneVisible by remember(animatedSurfaceStates, viewportWidthPx, wide) {
-                        derivedStateOf { drawerAlpha() > 0f && kotlin.math.abs(drawerOffset().x) < viewportWidthPx }
+                        derivedStateOf { kotlin.math.abs(drawerOffset().x) < viewportWidthPx }
                     }
-                    val homeSceneAlpha by remember(animatedSurfaceStates, wide) {
-                        derivedStateOf { (homeAlpha() * 4f).roundToInt() / 4f }
-                    }
-                    val drawerSceneAlpha by remember(animatedSurfaceStates, wide) {
-                        derivedStateOf { (drawerAlpha() * 4f).roundToInt() / 4f }
-                    }
+                    val homeSceneAlpha = remember(animatedSurfaceStates) { homeAlpha }
+                    val drawerSceneAlpha = remember(animatedSurfaceStates) { drawerAlpha }
                     val homeGeometry = remember(animatedSurfaceStates, posture, page) {
                         GlassGeometrySignal {
-                            listOf("home", homeAlpha(), homeScale(), homeOffset(), homeBlurRadiusDp())
+                            listOf("home", homeAlpha(), homeScale(), homeOffset(), homeVisualBlurRadiusDp())
                         }
                     }
                     val drawerGeometry = remember(animatedSurfaceStates, posture, page) {
@@ -2143,7 +2204,7 @@ internal fun FiiLDALauncher(
                                     enabled = glassEnabled || posture == Posture.INNER_LANDSCAPE,
                                     alpha = homeAlpha,
                                     scale = homeScale,
-                                    blurRadiusDp = homeBlurRadiusDp,
+                                    blurRadiusDp = homeVisualBlurRadiusDp,
                                 )
                                 .then(slideBlur { homeOffset().x })
                                 .then(
@@ -2157,17 +2218,7 @@ internal fun FiiLDALauncher(
                         ) {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 if (posture == Posture.INNER_LANDSCAPE) {
-                                    Header(
-                                        showWideSwitcher = true,
-                                        page = LauncherPage.HOME,
-                                        onToggleWideSurface = {
-                                            navigateToDestination(
-                                                destination = wideHeaderTargetDestination(LauncherPage.HOME),
-                                                withHaptic = true,
-                                                presentation = LauncherHomePresentation.START_CANVAS,
-                                            )
-                                        },
-                                    )
+                                    WideSwitcherSpace()
                                 }
                                 Box(
                                     modifier = Modifier
@@ -2196,13 +2247,15 @@ internal fun FiiLDALauncher(
                                         zIndex = launcherSurfaceLayerZIndex(page, LauncherPage.HOME),
                                         geometryVersion = homeGeometry,
                                     ) {
-                                    CompositionLocalProvider(LocalWebLinkTiles provides webLinks) {
+                                    CompositionLocalProvider(
+                                        LocalWebLinkTiles provides webLinks,
+                                        LocalWideHomeReveal provides wideHomeReveal,
+                                    ) {
                                     HomeSurface(
                                     posture = posture,
                                     isVisible = page == LauncherPage.HOME,
-                                    navigationBottomPadding = navigationScrollPadding,
+                                    navigationBottomPadding = navigationOcclusion,
                                     glassSceneEnabled = activeFolderExpansionSession == null,
-                                    glassSceneAlpha = 1f,
                                     glassSceneZIndex = 0f,
                                     glassSceneGeometryVersion = homeGeometry,
                                     now = now,
@@ -2393,8 +2446,8 @@ internal fun FiiLDALauncher(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clipToBoundsWithSideMargin(expand = page == LauncherPage.DRAWER)
-                            .zIndex(launcherSurfaceLayerZIndex(page, LauncherPage.DRAWER))
+                            .clipToBoundsWithSideMargin(expand = page == LauncherPage.DRAWER || wideDrawerHeld)
+                            .zIndex(if (wideDrawerHeld) 2f else launcherSurfaceLayerZIndex(page, LauncherPage.DRAWER))
                             .then(
                                 if (posture == Posture.INNER_LANDSCAPE) {
                                     Modifier
@@ -2415,13 +2468,13 @@ internal fun FiiLDALauncher(
                                 .fillMaxSize()
                                 .launcherSurfaceVisual(
                                     enabled = glassEnabled || posture == Posture.INNER_LANDSCAPE,
-                                    alpha = drawerAlpha,
-                                    scale = drawerScale,
-                                    blurRadiusDp = drawerBlurRadiusDp,
+                                    alpha = drawerVisualAlpha,
+                                    scale = drawerVisualScale,
+                                    blurRadiusDp = drawerVisualBlurRadiusDp,
                                 )
                                 .then(slideBlur { drawerOffset().x })
                                 .then(
-                                    if (posture == Posture.INNER_LANDSCAPE) {
+                                    if (posture == Posture.INNER_LANDSCAPE && !wideDrawerHeld) {
                                         Modifier.launcherGlassBaseBackground(FiiLDABlack)
                                     } else {
                                         Modifier
@@ -2434,7 +2487,7 @@ internal fun FiiLDALauncher(
                                     activeFolderExpansionSession == null &&
                                     drawerSceneVisible,
                                 alpha = drawerSceneAlpha,
-                                zIndex = launcherSurfaceLayerZIndex(page, LauncherPage.DRAWER),
+                                zIndex = if (wideDrawerHeld) 2f else launcherSurfaceLayerZIndex(page, LauncherPage.DRAWER),
                                 geometryVersion = drawerGeometry,
                             ) {
                             AppDrawer(
@@ -2443,20 +2496,18 @@ internal fun FiiLDALauncher(
                                 apps = filteredApps,
                                 // Reserve the tab height throughout IME motion so search never
                                 // drops below its resting position.
-                                navigationBottomPadding = if (glassEnabled) navigationOcclusion else 0.dp,
-                                viewportBottomInset = if (glassEnabled) 0.dp else navigationOcclusion,
+                                navigationBottomPadding = navigationOcclusion,
                                 searchController = drawerSearchController,
                                 allowSearchTargetPickerWhenInactive = showSettingsScreen,
                                 selectedPackage = selectedPackage,
                                 resetRequest = drawerResetRequest,
+                                searchFieldVisible = drawerSearchFieldVisible(
+                                    navigationVisible = navigationVisible,
+                                    searchOpen = drawerSearchOpen,
+                                    query = query,
+                                ),
+                                searchFocusRequest = drawerSearchFocusRequest,
                                 onQueryChange = { query = it },
-                                onToggleWideSurface = {
-                                    navigateToDestination(
-                                        destination = wideHeaderTargetDestination(LauncherPage.DRAWER),
-                                        withHaptic = true,
-                                        presentation = LauncherHomePresentation.START_CANVAS,
-                                    )
-                                },
                                 onLongPressApp = {
                                     actionApp = it
                                     actionAppHomePage = null
@@ -2468,6 +2519,9 @@ internal fun FiiLDALauncher(
                                         onAppLaunchFailure()
                                     }
                                 },
+                                wideRevealKey = wideDrawerRevealKey,
+                                wideExitKey = wideDrawerExitKey,
+                                onWideExitFinished = { wideDrawerExiting = false },
                             )
                             }
                         }
@@ -2479,14 +2533,27 @@ internal fun FiiLDALauncher(
                             )
                         }
                     }
-                    if (navigationVisible && !glassEnabled) {
-                        // Opaque themes clip content at the bar's top edge. Fade it into the
-                        // background there so tiles are not cut on a straight line next to the
-                        // bar's rounded corners. Draw-only: touches pass through.
-                        LauncherControlEdgeFade(
-                            modifier = Modifier.align(Alignment.BottomCenter).zIndex(2f),
-                        )
                     }
+                    if (posture == Posture.INNER_LANDSCAPE) {
+                        WideSwitcher(
+                            page = page,
+                            onToggleWideSurface = {
+                                navigateToDestination(
+                                    destination = wideHeaderTargetDestination(page),
+                                    withHaptic = true,
+                                    presentation = LauncherHomePresentation.START_CANVAS,
+                                )
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .then(
+                                    if (activeFolderExpansionSession == null) {
+                                        Modifier
+                                    } else {
+                                        Modifier.clearAndSetSemantics {}
+                                    },
+                                ),
+                        )
                     }
                     if (navigationVisible) {
                         Box(
@@ -2520,6 +2587,11 @@ internal fun FiiLDALauncher(
                                 presentation = homePresentation,
                                 selectedHomePage = selectedHomePage,
                                 homePageCount = homePages.count,
+                                searchActive = page == LauncherPage.DRAWER && drawerSearchFieldVisible(
+                                    navigationVisible = true,
+                                    searchOpen = drawerSearchOpen,
+                                    query = query,
+                                ),
                                 glassSceneEnabled = activeFolderExpansionSession == null,
                                 glassGeometryVersion = "navigation-$posture-$page-$homePresentation-$navigationBarHeightPx",
                                 onSelect = { destination ->
@@ -2530,6 +2602,7 @@ internal fun FiiLDALauncher(
                                         explicitHomeTap = true,
                                     )
                                 },
+                                onSearch = { toggleDrawerSearch(homePresentation) },
                             )
                         }
                     }

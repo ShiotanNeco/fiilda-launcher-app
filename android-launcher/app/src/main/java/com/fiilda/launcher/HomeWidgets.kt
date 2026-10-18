@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.SurfaceTexture
 import android.graphics.Rect
 import android.media.ExifInterface
 import android.media.MediaPlayer
@@ -16,10 +17,10 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.SizeF
-import android.view.MotionEvent
 import android.view.View
+import android.view.Surface
+import android.view.TextureView
 import android.widget.ImageView
-import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -112,6 +113,9 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 
 /** Built in, photo, media, and external widget tile rendering. */
 private const val MediaProgressTrackAlpha = 0.65f
+private val PhotoFrameMatWidth = 10.dp
+// Clears the tile outline (1dp, or a glass rim of up to 1.5dp).
+private val PhotoFrameVideoInset = 2.dp
 
 @Composable
 internal fun HomeWidgetTile(
@@ -340,9 +344,7 @@ private fun PhotoFrameTile(
         }
     }
     val compact = gridSize.rowSpan == 1
-    val framePadding = if (compact) 4.dp else 7.dp
     val bitmap = loadState.bitmap
-    val glassEnabled = LocalLauncherGlass.current.enabled
 
     Box(
         modifier = Modifier
@@ -357,15 +359,17 @@ private fun PhotoFrameTile(
                         FiiLDAPhotoFrameSurface,
                     )
                 },
-            )
-            .padding(framePadding),
+            ),
     ) {
+        // An image sits on the tile's own surface as a frame. A video fills the tile up to just
+        // inside its outline. Either way the corners stay concentric with the tile's.
+        val inset = if (isVideo) PhotoFrameVideoInset else PhotoFrameMatWidth
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .launcherBorder(1.dp, FiiLDALine)
-                .then(if (glassEnabled) Modifier else Modifier.background(FiiLDABlack))
-                // Compose bitmaps participate in the sharp scene; VideoView does not, so publish
+                .padding(inset)
+                .clip(RoundedCornerShape(LauncherTileCornerRadius - inset))
+                // Compose bitmaps participate in the sharp scene; video frames do not, so publish
                 // only the stable frame fallback for that path.
                 .launcherGlassContributor(
                     fallbackColor = FiiLDAPhotoFrameSurface.takeIf { isVideo },
@@ -386,10 +390,7 @@ private fun PhotoFrameTile(
                     bitmap = bitmap.asImageBitmap(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clipToBounds()
-                        .graphicsLayer { clip = true },
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
 
@@ -479,8 +480,8 @@ private fun PhotoFrameMuteToggle(
 }
 
 /**
- * Plays a selected video directly inside the photo-frame tile. VideoView's MediaPlayer is set
- * to looping so playback restarts without exposing controls or a second screen to the user.
+ * Plays a selected video directly inside the photo-frame tile, looping without controls. A
+ * TextureView draws inside Compose, so the tile's rounded clip and transition fades apply to it.
  */
 @Composable
 private fun LoopingVideoFrame(
@@ -491,80 +492,144 @@ private fun LoopingVideoFrame(
 ) {
     AndroidView(
         modifier = modifier,
-        factory = { viewContext ->
-            PassiveVideoView(viewContext).apply {
-                tag = uriString
-                setMuted(isMuted)
-                setVideoURI(Uri.parse(uriString))
-                setOnPreparedListener { player ->
-                    mediaPlayer = player
-                    player.isLooping = true
-                    applyCurrentMute()
-                    if (!isPlaying && this.active) start()
-                }
-                // Some providers report completion even when MediaPlayer.isLooping is set. Keep
-                // the explicit restart as a fallback for those implementations.
-                setOnCompletionListener {
-                    if (!isPlaying && this.active) start()
-                }
-                setOnErrorListener { _, _, _ -> true }
-            }
-        },
+        factory = { viewContext -> LoopingVideoView(viewContext) },
         update = { videoView ->
             videoView.setMuted(isMuted)
             videoView.active = active
-            if (videoView.tag != uriString) {
-                videoView.tag = uriString
-                videoView.stopPlayback()
-                videoView.mediaPlayer = null
-                videoView.setVideoURI(Uri.parse(uriString))
-            }
+            videoView.setVideo(Uri.parse(uriString))
         },
-        onRelease = { videoView ->
-            videoView.mediaPlayer = null
-            videoView.stopPlayback()
-        },
+        onRelease = { videoView -> videoView.releasePlayer() },
     )
 }
 
 /**
- * The launcher owns the tile tap, long-press, and reorder gestures. VideoView normally consumes
- * touch events to toggle media controls, so let those events bubble back to the Compose board.
+ * A looping, muted-by-default player that fits the whole video inside the view. It never handles
+ * touches, so the launcher keeps the tile tap, long-press, and reorder gestures.
  */
-private class PassiveVideoView(context: Context) : VideoView(context) {
-    var mediaPlayer: MediaPlayer? = null
+private class LoopingVideoView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
+    private var player: MediaPlayer? = null
+    private var surface: Surface? = null
+    private var uri: Uri? = null
+    private var prepared = false
+    private var videoWidth = 0
+    private var videoHeight = 0
+    private var muted = true
 
     /** Plays only while its Home page is shown; a composed but hidden page stays paused. */
     var active = true
         set(value) {
             if (field == value) return
             field = value
-            if (mediaPlayer != null) {
-                if (value) {
-                    if (!isPlaying) start()
-                } else if (isPlaying) {
-                    pause()
-                }
-            }
+            applyPlayback()
         }
-    private var muted = true
+
+    // Unlike VideoView's surface, this view's texture can outlive a hidden window, so pause
+    // explicitly while another app covers the launcher.
+    private var windowShown = true
+
+    init {
+        surfaceTextureListener = this
+        isOpaque = false
+    }
+
+    fun setVideo(value: Uri) {
+        if (uri == value) return
+        uri = value
+        openPlayer()
+    }
 
     fun setMuted(value: Boolean) {
         if (muted == value) return
         muted = value
-        applyCurrentMute()
+        applyMute()
     }
 
-    fun applyCurrentMute() {
-        mediaPlayer?.let { player ->
-            runCatching {
-                val volume = if (muted) 0f else 1f
-                player.setVolume(volume, volume)
+    fun releasePlayer() {
+        player?.let { runCatching { it.release() } }
+        player = null
+        prepared = false
+    }
+
+    private fun openPlayer() {
+        releasePlayer()
+        val target = uri ?: return
+        val currentSurface = surface ?: return
+        val mediaPlayer = MediaPlayer()
+        player = mediaPlayer
+        runCatching {
+            mediaPlayer.setSurface(currentSurface)
+            mediaPlayer.setDataSource(context, target)
+            mediaPlayer.isLooping = true
+            mediaPlayer.setOnVideoSizeChangedListener { _, width, height ->
+                videoWidth = width
+                videoHeight = height
+                updateTransform()
+            }
+            mediaPlayer.setOnPreparedListener {
+                prepared = true
+                applyMute()
+                applyPlayback()
+            }
+            // Some providers report completion even with looping set; restart them explicitly.
+            mediaPlayer.setOnCompletionListener { applyPlayback() }
+            mediaPlayer.setOnErrorListener { _, _, _ -> true }
+            mediaPlayer.prepareAsync()
+        }.onFailure { releasePlayer() }
+    }
+
+    private fun applyPlayback() {
+        val mediaPlayer = player?.takeIf { prepared } ?: return
+        runCatching {
+            if (active && windowShown) {
+                if (!mediaPlayer.isPlaying) mediaPlayer.start()
+            } else if (mediaPlayer.isPlaying) {
+                mediaPlayer.pause()
             }
         }
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean = false
+    private fun applyMute() {
+        val volume = if (muted) 0f else 1f
+        player?.let { runCatching { it.setVolume(volume, volume) } }
+    }
+
+    /** Letterboxes the video like VideoView did; the tile's surface shows around it. */
+    private fun updateTransform() {
+        if (videoWidth <= 0 || videoHeight <= 0 || width <= 0 || height <= 0) return
+        val scale = minOf(width.toFloat() / videoWidth, height.toFloat() / videoHeight)
+        setTransform(
+            Matrix().apply {
+                setScale(videoWidth * scale / width, videoHeight * scale / height, width / 2f, height / 2f)
+            },
+        )
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        windowShown = visibility == View.VISIBLE
+        applyPlayback()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        updateTransform()
+    }
+
+    override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+        surface = Surface(texture)
+        openPlayer()
+    }
+
+    override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = updateTransform()
+
+    override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+        releasePlayer()
+        surface?.release()
+        surface = null
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
 }
 
 internal fun isPhotoFrameVideo(context: Context, uriString: String?): Boolean {
@@ -643,7 +708,6 @@ internal fun ExternalWidgetTile(
     onGestureEnabled: () -> Boolean,
     onHostBoundsChanged: (HomeItemBounds?) -> Unit,
     glassSceneEnabled: Boolean = true,
-    glassSceneAlpha: Float = 1f,
     glassSceneZIndex: Float = 0f,
     glassSceneGeometryVersion: Any? = null,
 ) {
@@ -765,7 +829,6 @@ internal fun ExternalWidgetTile(
                                 // fallback representation to the scene registry.
                                 .launcherGlassContributor(
                                     enabled = glassSceneEnabled,
-                                    alpha = glassSceneAlpha,
                                     zIndex = glassSceneZIndex,
                                     fallbackColor = FiiLDASurface,
                                     geometryVersion = glassSceneGeometryVersion,
