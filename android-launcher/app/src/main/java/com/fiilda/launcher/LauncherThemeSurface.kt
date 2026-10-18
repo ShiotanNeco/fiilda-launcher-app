@@ -18,7 +18,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowInsetsControllerCompat
 
@@ -169,15 +168,10 @@ internal fun FiiLDATheme(content: @Composable () -> Unit) {
             false
         }
     }
-    // Keep system bars legible as the setting changes. WindowCompat edge-to-edge remains enabled
-    // by MainActivity, so transparent bars let each surface's palette continue underneath them.
+    // MainActivity draws behind transparent system bars, so only the icon colors follow the palette.
     val activity = context as? ComponentActivity
     SideEffect {
         activity?.window?.let { window ->
-            // The activity draws behind both system bars. Surface-specific inset handling keeps
-            // interactive content safe while the active palette remains visible underneath them.
-            window.statusBarColor = Color.Transparent.toArgb()
-            window.navigationBarColor = Color.Transparent.toArgb()
             WindowInsetsControllerCompat(window, window.decorView).apply {
                 isAppearanceLightStatusBars = palette.isLight
                 isAppearanceLightNavigationBars = palette.isLight

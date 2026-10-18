@@ -120,7 +120,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -348,27 +347,17 @@ private fun ActionSectionHeading(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Dialogs use their own platform Window, so the activity-level bar colors do not reach these
- * surfaces. Action sheets use their theme's deep surface; the photo preview overrides the helper
- * with a black, media-focused full-screen bar and light system icons.
+ * Dialogs use their own platform Window, so the activity's system bar icon colors do not reach
+ * them. Each dialog draws its own background behind the bars; this only sets the icon colors.
  */
 @Composable
-internal fun LauncherDialogSystemBars(
-    barColor: Color? = null,
-    lightBars: Boolean? = null,
-) {
-    val view = LocalView.current
-    val palette = LocalLauncherPalette.current
-    val dialogWindow = view.parent as? DialogWindowProvider
+internal fun LauncherDialogSystemBarIcons(lightBars: Boolean = LocalLauncherPalette.current.isLight) {
+    val dialogWindow = LocalView.current.parent as? DialogWindowProvider
     SideEffect {
         dialogWindow?.window?.let { window ->
-            val resolvedBarColor = barColor ?: palette.deep
-            window.statusBarColor = resolvedBarColor.toArgb()
-            window.navigationBarColor = resolvedBarColor.toArgb()
             WindowInsetsControllerCompat(window, window.decorView).apply {
-                val resolvedLightBars = lightBars ?: palette.isLight
-                isAppearanceLightStatusBars = resolvedLightBars
-                isAppearanceLightNavigationBars = resolvedLightBars
+                isAppearanceLightStatusBars = lightBars
+                isAppearanceLightNavigationBars = lightBars
             }
         }
     }
@@ -424,7 +413,7 @@ private fun ActionMenuSheet(
         dragHandle = { BottomSheetDefaults.DragHandle(color = colors.muted.copy(alpha = 0.4f)) },
         modifier = Modifier.fillMaxWidth(),
     ) {
-        LauncherDialogSystemBars(barColor = Color.Transparent)
+        LauncherDialogSystemBarIcons()
         if (blurBehind) DialogBlurBehind()
         content()
     }

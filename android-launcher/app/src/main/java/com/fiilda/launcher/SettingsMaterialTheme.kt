@@ -13,8 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -71,8 +69,6 @@ private fun applySettingsSystemBars(
     systemDarkTheme: Boolean,
 ) {
     activity?.window?.let { window ->
-        window.statusBarColor = Color.Transparent.toArgb()
-        window.navigationBarColor = Color.Transparent.toArgb()
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = !systemDarkTheme
             isAppearanceLightNavigationBars = !systemDarkTheme
@@ -85,10 +81,8 @@ private fun restoreLauncherSystemBars(
     parentPaletteIsLight: Boolean,
 ) {
     activity?.window?.let { window ->
-        // LauncherThemeSurface uses transparent edge-to-edge bars for every palette. Restoring
-        // the icon appearance from the parent palette also handles a theme changed in Settings.
-        window.statusBarColor = Color.Transparent.toArgb()
-        window.navigationBarColor = Color.Transparent.toArgb()
+        // Restoring the icon appearance from the parent palette also handles a theme changed in
+        // Settings.
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = parentPaletteIsLight
             isAppearanceLightNavigationBars = parentPaletteIsLight
