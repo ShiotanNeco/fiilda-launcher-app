@@ -297,6 +297,8 @@ class LauncherThemeTest {
             HomeWidget.CALENDAR.id to listOf(white, muted, quiet, accent),
             // Battery uses ink/muted labels plus the cyan progress bar over Metro green.
             HomeWidget.BATTERY.id to listOf(white, muted, accent),
+            // Battery and devices draws white ink over a faint white liquid.
+            HomeWidget.DEVICE_BATTERY.id to listOf(white, muted, accent),
             HomeWidget.REMINDER.id to listOf(white, muted),
             HomeWidget.MEDIA.id to listOf(white, muted, quiet, accent),
             HomeWidget.FORECAST.id to listOf(white, muted, quiet),

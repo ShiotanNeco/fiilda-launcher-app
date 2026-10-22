@@ -413,6 +413,7 @@ private val BuiltInWidgetHomeIds = setOf(
     "widget:agenda",
     "widget:calendar",
     "widget:battery",
+    "widget:device-battery",
     "widget:reminder",
     "widget:media",
     "widget:forecast",

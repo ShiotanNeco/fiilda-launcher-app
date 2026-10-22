@@ -130,6 +130,9 @@ class GlassBackdropState internal constructor(internal val layer: androidx.compo
     internal val blurredSnapshots = mutableStateMapOf<Int, ImageBitmap>()
     internal val requestedBlurRadii = mutableStateListOf<Int>()
     internal val snapshotRevision = mutableIntStateOf(0)
+    // The snapshotRevision the source last recorded into [layer]. Snapshots are rendered only
+    // once this catches up; rendering earlier would cache the previous wallpaper.
+    internal val recordedRevision = mutableIntStateOf(-1)
     internal var snapshotSize = IntSize.Zero
 
     /**
@@ -192,10 +195,11 @@ fun GlassBackdrop(
     val layoutDirection = LocalLayoutDirection.current
     LaunchedEffect(state, graphicsContext) {
         snapshotFlow {
-            Triple(state.snapshotRevision.intValue, state.captureReady, state.requestedBlurRadii.toList())
-        }.collectLatest { (_, ready, radii) ->
+            val recorded = state.recordedRevision.intValue == state.snapshotRevision.intValue
+            Triple(recorded, state.captureReady, state.requestedBlurRadii.toList())
+        }.collectLatest { (recorded, ready, radii) ->
             val size = state.snapshotSize
-            if (!ready || size.width <= 0 || size.height <= 0) return@collectLatest
+            if (!recorded || !ready || size.width <= 0 || size.height <= 0) return@collectLatest
             for (radius in radii) {
                 if (radius in state.blurredSnapshots) continue
                 val blurLayer = graphicsContext.createGraphicsLayer()
@@ -245,8 +249,13 @@ fun GlassBackdrop(
                 .graphicsLayer()
                 .drawWithContent {
                     val hardware = drawContext.canvas.nativeCanvas.isHardwareAccelerated
+                    // Observed so that an invalidation always re-records the source.
+                    val revision = state.snapshotRevision.intValue
                     if (hardware) {
                         state.layer.record { this@drawWithContent.drawContent() }
+                        Snapshot.withoutReadObservation {
+                            state.recordedRevision.intValue = revision
+                        }
                         drawLayer(state.layer)
                     } else {
                         drawContent()

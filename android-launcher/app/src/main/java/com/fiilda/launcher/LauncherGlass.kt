@@ -210,7 +210,7 @@ internal fun LauncherGlassHost(
     val theme = LocalLauncherTheme.current
     val isGlass = theme.isGlass
     val wallpaperState = LocalGlassWallpaperController.current?.state
-    val wallpaperVersion = wallpaperState?.bitmap
+    val wallpaperVersion = wallpaperState?.bitmap?.let { it to wallpaperState.crop }
     val appearance = wallpaperState?.appearance ?: GlassAppearance()
     val reduceTransparency = LocalGlassReduceTransparency.current
     val highContrast = rememberHighContrastTextEnabled()

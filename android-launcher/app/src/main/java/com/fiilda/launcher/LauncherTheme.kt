@@ -229,6 +229,7 @@ internal fun windows8BuiltInTileColor(widgetId: String): Color = when (widgetId)
     // Darkened just enough for the light semantic roles to remain AA-readable.
     "widget:calendar" -> Color(0xFFA72B00)
     "widget:battery" -> Color(0xFF107C10)
+    "widget:device-battery" -> Color(0xFF00704A)
     "widget:reminder" -> Color(0xFFB4009E)
     "widget:media" -> Color(0xFF0063B1)
     "widget:forecast" -> Color(0xFF7A5E00)

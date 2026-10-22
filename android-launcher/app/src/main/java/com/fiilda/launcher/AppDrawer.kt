@@ -9,6 +9,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1080,8 +1082,22 @@ internal fun AppDrawer(
     wideRevealKey: Int = 0,
     wideExitKey: Int = 0,
     onWideExitFinished: () -> Unit = {},
+    /** Rightward swipe back to Home; null where the surfaces do not sit side by side. */
+    onSwipeToHome: (() -> Unit)? = null,
 ) {
     val drawerGestureSignal = remember { AppDrawerGestureSignal() }
+    val currentOnSwipeToHome = rememberUpdatedState(onSwipeToHome)
+    val swipeToHome = if (onSwipeToHome != null) {
+        Modifier.pointerInput(Unit) {
+            val tracker = SurfaceSwipeTracker(SurfaceSwipeDistance.toPx())
+            detectHorizontalDragGestures(
+                onDragEnd = { if (tracker.release()) currentOnSwipeToHome.value?.invoke() },
+                onDragCancel = tracker::reset,
+            ) { _, dragAmount -> tracker.onDrag(dragAmount) }
+        }
+    } else {
+        Modifier
+    }
     val drawerGridState = rememberLazyGridState()
     val drawerFloat = rememberHomeFloatState(centersMoveWithScroll = true) {
         drawerGridState.isScrollInProgress
@@ -1231,7 +1247,7 @@ internal fun AppDrawer(
                 with(LocalDensity.current) { drawerHeaderHeightPx.toDp() } -
                 3.dp - 8.dp - searchOccupiedHeight
             ).coerceAtLeast(0.dp)
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().then(swipeToHome)) {
             LazyVerticalGrid(
                 modifier = Modifier
                     .fillMaxSize()

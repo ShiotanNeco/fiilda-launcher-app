@@ -350,14 +350,14 @@ internal fun isHomeItemPageTransferEligible(
         id in canonical.allIds
 }
 
+/** Moves any item on Home to [targetPage]; callers check what kinds of item may move. */
 internal fun computeHomeItemPageTransfer(
     layout: HomeLayout,
-    favoriteIds: Collection<String>,
     id: String,
     targetPage: Int,
 ): HomeItemPageTransfer? {
     val canonical = canonicalizeHomeLayout(layout)
-    if (id.isBlank() || id !in favoriteIds || id !in canonical.allIds) return null
+    if (id.isBlank() || id !in canonical.allIds) return null
     val sourcePage = canonical.pageOf(id)
     val normalizedTargetPage = targetPage.coerceIn(0, canonical.pageCount - 1)
     return HomeItemPageTransfer(

@@ -587,7 +587,6 @@ class HomePagesTest {
 
         val transfer = computeHomeItemPageTransfer(
             layout = initial,
-            favoriteIds = listOf("a", "b", "c"),
             id = "a",
             targetPage = 1,
         )
@@ -609,7 +608,27 @@ class HomePagesTest {
     }
 
     @Test
-    fun favoritePageTransferRejectsStaleOrNonFavoriteAndTreatsSamePageAsNoOp() {
+    fun widgetPageTransferMovesOnlyThatWidget() {
+        val initial = HomeLayout(
+            order = listOf("a", "widget:clock", "widget:external:7"),
+            narrowPageById = mapOf("a" to 0, "widget:clock" to 1, "widget:external:7" to 0),
+            narrowOrder = listOf("a", "widget:clock", "widget:external:7"),
+        )
+
+        val clock = requireNotNull(computeHomeItemPageTransfer(initial, "widget:clock", 0))
+        assertTrue(clock.changed)
+        assertEquals(1, clock.sourcePage)
+        assertEquals(0, clock.layout.pageOf("widget:clock"))
+        assertEquals(0, clock.layout.pageOf("widget:external:7"))
+        assertEquals(initial.order, clock.layout.order)
+
+        val external = requireNotNull(computeHomeItemPageTransfer(initial, "widget:external:7", 1))
+        assertEquals(1, external.layout.pageOf("widget:external:7"))
+        assertEquals(1, external.layout.pageOf("widget:clock"))
+    }
+
+    @Test
+    fun pageTransferRejectsStaleItemsAndTreatsSamePageAsNoOp() {
         val initial = HomeLayout(
             order = listOf("a", "b"),
             narrowPageById = mapOf("a" to 0, "b" to 1),
@@ -618,7 +637,6 @@ class HomePagesTest {
 
         val samePage = computeHomeItemPageTransfer(
             layout = initial,
-            favoriteIds = listOf("a", "b"),
             id = "a",
             targetPage = 0,
         )
@@ -629,17 +647,8 @@ class HomePagesTest {
         assertNull(
             computeHomeItemPageTransfer(
                 layout = initial,
-                favoriteIds = listOf("a", "b"),
                 id = "removed",
                 targetPage = 1,
-            ),
-        )
-        assertNull(
-            computeHomeItemPageTransfer(
-                layout = initial,
-                favoriteIds = listOf("a"),
-                id = "b",
-                targetPage = 0,
             ),
         )
     }

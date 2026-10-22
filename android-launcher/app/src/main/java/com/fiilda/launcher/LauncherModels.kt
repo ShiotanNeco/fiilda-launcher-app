@@ -41,6 +41,7 @@ internal enum class HomeWidget(val id: String, private val jaLabel: String, priv
     AGENDA("widget:agenda", "今日の予定", "Today's events"),
     CALENDAR("widget:calendar", "カレンダー", "Calendar"),
     BATTERY("widget:battery", "端末", "Battery"),
+    DEVICE_BATTERY("widget:device-battery", "バッテリーと周辺機器", "Battery and devices"),
     REMINDER("widget:reminder", "リマインダー", "Reminders"),
     MEDIA("widget:media", "メディア", "Media"),
     FORECAST("widget:forecast", "週間天気予報", "Weekly forecast"),

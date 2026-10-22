@@ -52,7 +52,7 @@ class DynamicHomePagesTest {
     }
 
     @Test fun pageOperationsRetainOwnersBeyondSecondPage() {
-        val transfer = computeHomeItemPageTransfer(layout, listOf("app"), "app", 4)!!
+        val transfer = computeHomeItemPageTransfer(layout, "app", 4)!!
         assertEquals(4, transfer.layout.pageOf("app"))
         assertEquals(layout.order, transfer.layout.order)
         assertEquals(layout.narrowOrder, transfer.layout.narrowOrder)

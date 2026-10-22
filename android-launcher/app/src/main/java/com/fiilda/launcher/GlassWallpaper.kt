@@ -12,9 +12,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
 import androidx.activity.result.PickVisualMediaRequest
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +26,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -35,6 +38,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -55,13 +59,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import dev.glasslab.glass.GlassBackdrop
 import dev.glasslab.glass.GlassSurface
 import dev.glasslab.glass.rememberGlassBackdrop
@@ -96,6 +105,74 @@ internal const val GlassAppearanceBlurPreferenceKey = "appearance_blur_dp"
 internal const val GlassAppearanceRefractionPreferenceKey = "appearance_refraction_dp"
 internal const val GlassAppearanceTintPreferenceKey = "appearance_tint_strength"
 internal const val GlassWallpaperFileName = "glass_wallpaper.png"
+internal const val GlassWallpaperCropZoomPreferenceKey = "wallpaper_crop_zoom"
+internal const val GlassWallpaperCropCenterXPreferenceKey = "wallpaper_crop_center_x"
+internal const val GlassWallpaperCropCenterYPreferenceKey = "wallpaper_crop_center_y"
+internal const val GlassWallpaperMaxCropZoom = 5f
+
+/**
+ * The visible part of the saved image. Zoom 1 is a center/crop fill of the screen, and the center
+ * is a fraction of the image. Keeping it relative lets one crop fit rotated or folded screens.
+ */
+internal data class GlassWallpaperCrop(
+    val zoom: Float = 1f,
+    val centerX: Float = 0.5f,
+    val centerY: Float = 0.5f,
+) {
+    fun normalized(): GlassWallpaperCrop = GlassWallpaperCrop(
+        zoom = zoom.takeIf { it.isFinite() }?.coerceIn(1f, GlassWallpaperMaxCropZoom) ?: 1f,
+        centerX = centerX.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
+        centerY = centerY.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
+    )
+}
+
+/** Returns the image rectangle that [crop] shows in a view of the given size. */
+internal fun glassWallpaperSourceRect(
+    imageWidth: Int,
+    imageHeight: Int,
+    viewWidth: Float,
+    viewHeight: Float,
+    crop: GlassWallpaperCrop,
+): Rect {
+    val scale = maxOf(viewWidth / imageWidth, viewHeight / imageHeight) * crop.zoom
+    val width = (viewWidth / scale).coerceAtMost(imageWidth.toFloat())
+    val height = (viewHeight / scale).coerceAtMost(imageHeight.toFloat())
+    val left = (crop.centerX * imageWidth - width / 2f).coerceIn(0f, imageWidth - width)
+    val top = (crop.centerY * imageHeight - height / 2f).coerceIn(0f, imageHeight - height)
+    return Rect(left, top, left + width, top + height)
+}
+
+/**
+ * Applies one pinch/drag step. The image point under the fingers stays under them, and the center
+ * is stored after clamping so dragging past an edge does not build up hidden offset.
+ */
+internal fun GlassWallpaperCrop.transformed(
+    imageWidth: Int,
+    imageHeight: Int,
+    viewWidth: Float,
+    viewHeight: Float,
+    centroid: Offset,
+    pan: Offset,
+    zoomChange: Float,
+): GlassWallpaperCrop {
+    val current = glassWallpaperSourceRect(imageWidth, imageHeight, viewWidth, viewHeight, this)
+    val scale = viewWidth / current.width
+    val previousCentroid = centroid - pan
+    val focusX = current.left + previousCentroid.x / scale
+    val focusY = current.top + previousCentroid.y / scale
+    val nextZoom = (zoom * zoomChange).coerceIn(1f, GlassWallpaperMaxCropZoom)
+    val nextScale = scale * nextZoom / zoom
+    val unclamped = GlassWallpaperCrop(
+        zoom = nextZoom,
+        centerX = (focusX - centroid.x / nextScale + viewWidth / nextScale / 2f) / imageWidth,
+        centerY = (focusY - centroid.y / nextScale + viewHeight / nextScale / 2f) / imageHeight,
+    ).normalized()
+    val clamped = glassWallpaperSourceRect(imageWidth, imageHeight, viewWidth, viewHeight, unclamped)
+    return unclamped.copy(
+        centerX = clamped.center.x / imageWidth,
+        centerY = clamped.center.y / imageHeight,
+    )
+}
 
 /** State shared by the Glass background and the settings preview. */
 internal data class GlassWallpaperState(
@@ -106,6 +183,8 @@ internal data class GlassWallpaperState(
     val errorMessage: String? = null,
     val reduceTransparency: Boolean = false,
     val appearance: GlassAppearance = GlassAppearance(),
+    val crop: GlassWallpaperCrop = GlassWallpaperCrop(),
+    val isCropEditorOpen: Boolean = false,
 )
 
 internal data class GlassWallpaperLoadResult(
@@ -270,6 +349,24 @@ internal class GlassThemePreferences(
         }
     }
 
+    fun readCrop(): GlassWallpaperCrop = GlassWallpaperCrop(
+        zoom = readFloatOrDefault(GlassWallpaperCropZoomPreferenceKey, 1f),
+        centerX = readFloatOrDefault(GlassWallpaperCropCenterXPreferenceKey, 0.5f),
+        centerY = readFloatOrDefault(GlassWallpaperCropCenterYPreferenceKey, 0.5f),
+    ).normalized()
+
+    fun saveCrop(crop: GlassWallpaperCrop): Boolean {
+        val normalized = crop.normalized()
+        return runCatching {
+            commitEditor(
+                preferences.edit()
+                    .putFloat(GlassWallpaperCropZoomPreferenceKey, normalized.zoom)
+                    .putFloat(GlassWallpaperCropCenterXPreferenceKey, normalized.centerX)
+                    .putFloat(GlassWallpaperCropCenterYPreferenceKey, normalized.centerY),
+            )
+        }.getOrDefault(false)
+    }
+
     private fun snapshotAppearancePreferences(): Map<String, StoredPreference> =
         appearancePreferenceKeys.associateWith { key ->
             StoredPreference(
@@ -321,6 +418,7 @@ internal class GlassWallpaperController(
         GlassWallpaperState(
             reduceTransparency = preferences.readReduceTransparency(),
             appearance = preferences.readAppearance(),
+            crop = preferences.readCrop(),
         ),
     )
     private var started = false
@@ -383,7 +481,10 @@ internal class GlassWallpaperController(
         launchReserved(reservation) {
             val result = reservation.runIfActive({ acceptingRequests }) {
                 try {
-                    store.importWallpaper(uri)
+                    store.importWallpaper(uri).also { imported ->
+                        // A new image starts centered; the old framing belongs to the old image.
+                        if (imported.succeeded) preferences.saveCrop(GlassWallpaperCrop())
+                    }
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: Exception) {
@@ -401,6 +502,8 @@ internal class GlassWallpaperController(
                         isBusy = pendingOperations > 0,
                         hasWallpaper = true,
                         errorMessage = null,
+                        crop = GlassWallpaperCrop(),
+                        isCropEditorOpen = true,
                     )
                 } else {
                     // The path queue commits earlier operations before this result is observed.
@@ -423,7 +526,9 @@ internal class GlassWallpaperController(
         launchReserved(reservation) {
             val succeeded = reservation.runIfActive({ acceptingRequests }) {
                 try {
-                    store.reset()
+                    store.reset().also { removed ->
+                        if (removed) preferences.saveCrop(GlassWallpaperCrop())
+                    }
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: Exception) {
@@ -441,6 +546,8 @@ internal class GlassWallpaperController(
                         isBusy = pendingOperations > 0,
                         hasWallpaper = false,
                         errorMessage = null,
+                        crop = GlassWallpaperCrop(),
+                        isCropEditorOpen = false,
                     )
                 } else {
                     stateHolder.value = stateHolder.value.copy(
@@ -478,6 +585,31 @@ internal class GlassWallpaperController(
         }
         stateHolder.value = stateHolder.value.copy(
             appearance = normalized,
+            errorMessage = null,
+        )
+        return true
+    }
+
+    internal fun openCropEditor() {
+        if (stateHolder.value.bitmap == null) return
+        stateHolder.value = stateHolder.value.copy(isCropEditorOpen = true)
+    }
+
+    internal fun closeCropEditor() {
+        stateHolder.value = stateHolder.value.copy(isCropEditorOpen = false)
+    }
+
+    internal fun setCrop(request: GlassWallpaperCrop): Boolean {
+        val normalized = request.normalized()
+        if (!preferences.saveCrop(normalized)) {
+            stateHolder.value = stateHolder.value.copy(
+                errorMessage = tr("切り取り範囲を保存できませんでした", "Couldn't save the crop"),
+            )
+            return false
+        }
+        stateHolder.value = stateHolder.value.copy(
+            crop = normalized,
+            isCropEditorOpen = false,
             errorMessage = null,
         )
         return true
@@ -705,10 +837,11 @@ private val GlassWallpaperDefaultBrush = Brush.linearGradient(
     ),
 )
 
-/** Draws the selected wallpaper with center/crop; the default is a broad blue-gray color field. */
+/** Draws the selected wallpaper with its saved crop; the default is a broad blue-gray color field. */
 @Composable
 internal fun GlassWallpaper(modifier: Modifier = Modifier) {
-    val bitmap = LocalGlassWallpaperController.current?.state?.bitmap
+    val state = LocalGlassWallpaperController.current?.state
+    val bitmap = state?.bitmap
     Box(
         modifier = modifier
             .clipToBounds()
@@ -746,13 +879,125 @@ internal fun GlassWallpaper(modifier: Modifier = Modifier) {
             }
         }
         if (bitmap != null && !bitmap.isRecycled) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
+            CroppedWallpaperImage(
+                bitmap = bitmap,
+                crop = state.crop,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.Center,
             )
+        }
+    }
+}
+
+@Composable
+private fun CroppedWallpaperImage(
+    bitmap: Bitmap,
+    crop: GlassWallpaperCrop,
+    modifier: Modifier = Modifier,
+) {
+    val image = remember(bitmap) { bitmap.asImageBitmap() }
+    Canvas(modifier) {
+        if (size.width <= 0f || size.height <= 0f) return@Canvas
+        val source = glassWallpaperSourceRect(
+            imageWidth = image.width,
+            imageHeight = image.height,
+            viewWidth = size.width,
+            viewHeight = size.height,
+            crop = crop,
+        )
+        val left = source.left.toInt().coerceIn(0, image.width - 1)
+        val top = source.top.toInt().coerceIn(0, image.height - 1)
+        drawImage(
+            image = image,
+            srcOffset = IntOffset(left, top),
+            srcSize = IntSize(
+                source.width.roundToInt().coerceIn(1, image.width - left),
+                source.height.roundToInt().coerceIn(1, image.height - top),
+            ),
+            dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+        )
+    }
+}
+
+/** Full-screen editor: the dialog fills the display, so the framing matches the home screen. */
+@Composable
+private fun GlassWallpaperCropEditor(
+    bitmap: Bitmap,
+    initialCrop: GlassWallpaperCrop,
+    onDismiss: () -> Unit,
+    onApply: (GlassWallpaperCrop) -> Unit,
+) {
+    var draft by remember(bitmap) { mutableStateOf(initialCrop) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        LauncherDialogSystemBarIcons(lightBars = false)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            CroppedWallpaperImage(
+                bitmap = bitmap,
+                crop = draft,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(bitmap) {
+                        detectTransformGestures { centroid, pan, zoom, _ ->
+                            draft = draft.transformed(
+                                imageWidth = bitmap.width,
+                                imageHeight = bitmap.height,
+                                viewWidth = size.width.toFloat(),
+                                viewHeight = size.height.toFloat(),
+                                centroid = centroid,
+                                pan = pan,
+                                zoomChange = zoom,
+                            )
+                        }
+                    }
+                    .semantics {
+                        contentDescription = tr("壁紙の切り取り範囲", "Wallpaper crop area")
+                    },
+            )
+            Text(
+                text = tr("ドラッグで移動、ピンチで拡大", "Drag to move, pinch to zoom"),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(top = 12.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(50))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(28.dp))
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text(tr("キャンセル", "Cancel"), color = Color.White)
+                }
+                TextButton(
+                    onClick = { draft = GlassWallpaperCrop() },
+                    enabled = draft != GlassWallpaperCrop(),
+                ) {
+                    Text(
+                        tr("リセット", "Reset"),
+                        color = Color.White.copy(alpha = if (draft != GlassWallpaperCrop()) 1f else 0.4f),
+                    )
+                }
+                Button(onClick = { onApply(draft) }) {
+                    Text(tr("完了", "Done"))
+                }
+            }
         }
     }
 }
@@ -801,7 +1046,7 @@ internal fun GlassThemeSettings() {
                 GlassBackdrop(
                     state = previewBackdrop,
                     modifier = Modifier.fillMaxSize(),
-                    contentVersion = state.bitmap ?: "default-wallpaper",
+                    contentVersion = state.bitmap?.let { it to state.crop } ?: "default-wallpaper",
                 ) {
                     GlassWallpaper(Modifier.fillMaxSize())
                 }
@@ -879,6 +1124,15 @@ internal fun GlassThemeSettings() {
                 modifier = Modifier.weight(1f),
             ) {
                 Text(tr("標準に戻す", "Reset to default"))
+            }
+        }
+        if (state.bitmap != null) {
+            OutlinedButton(
+                onClick = controller::openCropEditor,
+                enabled = !state.isBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(tr("切り取り範囲を調整", "Adjust crop"))
             }
         }
         Row(
@@ -985,6 +1239,15 @@ internal fun GlassThemeSettings() {
             )
         }
         Spacer(Modifier.height(2.dp))
+    }
+    val editorBitmap = state.bitmap
+    if (state.isCropEditorOpen && editorBitmap != null && !editorBitmap.isRecycled) {
+        GlassWallpaperCropEditor(
+            bitmap = editorBitmap,
+            initialCrop = state.crop,
+            onDismiss = controller::closeCropEditor,
+            onApply = { controller.setCrop(it) },
+        )
     }
 }
 

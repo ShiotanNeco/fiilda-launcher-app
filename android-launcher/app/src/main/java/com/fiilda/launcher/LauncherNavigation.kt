@@ -1,5 +1,7 @@
 package com.fiilda.launcher
 
+import androidx.compose.ui.unit.dp
+
 /** The two content surfaces that can be presented by the launcher. */
 internal enum class LauncherPage {
     HOME,
@@ -337,4 +339,31 @@ internal fun mapLauncherPostureTransition(
             LauncherPostureTransition(LauncherPage.HOME, LauncherDestination.HOME, owner)
         else -> LauncherPostureTransition(page, wideAnchor, selected)
     }
+}
+
+/**
+ * Finger travel that switches between Home and the app list by swiping: past the last Home page
+ * toward the list, or rightward on the list back to Home. Longer than a page swipe, so one extra
+ * swipe at the end of Home only bounces.
+ */
+internal val SurfaceSwipeDistance = 112.dp
+
+/**
+ * Adds up one gesture's travel toward the other surface. Travel back the other way takes it off
+ * again, so a swipe that turns around does not switch.
+ */
+internal class SurfaceSwipeTracker(private val thresholdPx: Float) {
+    private var travel = 0f
+
+    /** [towardSurfacePx] is positive while the finger moves toward the other surface. */
+    fun onDrag(towardSurfacePx: Float) {
+        travel = (travel + towardSurfacePx).coerceAtLeast(0f)
+    }
+
+    fun reset() {
+        travel = 0f
+    }
+
+    /** Ends the gesture; true when it travelled far enough to switch. */
+    fun release(): Boolean = (travel >= thresholdPx).also { travel = 0f }
 }

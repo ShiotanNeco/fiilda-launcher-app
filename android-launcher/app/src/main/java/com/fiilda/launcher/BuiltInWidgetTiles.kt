@@ -70,6 +70,27 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.ceil
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Laptop
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Watch
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlin.math.PI
+import kotlin.math.sin
+import kotlin.random.Random
 
 /**
  * The visual dialect a built-in widget speaks in the active theme. Each keeps its theme's existing
@@ -223,6 +244,7 @@ internal fun BuiltInWidgetTile(
             HomeWidget.AGENDA -> AgendaWidget(now, footprint)
             HomeWidget.CALENDAR -> CalendarWidget(now, footprint, onCalendar)
             HomeWidget.BATTERY -> BatteryWidget(battery, footprint)
+            HomeWidget.DEVICE_BATTERY -> DeviceBatteryWidget(battery, footprint)
             HomeWidget.REMINDER -> ReminderWidget(footprint)
             // Rendered by HomeWidgetTile; listed so the when stays exhaustive.
             HomeWidget.MEDIA, HomeWidget.PHOTO -> Unit
@@ -247,10 +269,11 @@ private fun WidgetFrame(
     trailing: String? = null,
     onTrailing: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    backdrop: (DrawScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val style = LocalWidgetStyle.current
-    FiiLDATile(modifier = Modifier.fillMaxSize(), onClick = onClick, widget = widget) {
+    FiiLDATile(modifier = Modifier.fillMaxSize(), onClick = onClick, widget = widget, backdrop = backdrop) {
         if (style.language != WidgetLanguage.METRO) {
             WidgetHeader(title = title, icon = icon, trailing = trailing, onTrailing = onTrailing)
         }
@@ -1036,6 +1059,324 @@ private fun BatteryFact(label: String, value: String) {
         SecondaryText(label, size = 9.sp)
         FillSpace()
         SecondaryText(value, color = FiiLDAInk, size = 10.sp)
+    }
+}
+
+// endregion
+
+// region Battery and devices
+
+private const val LowBatteryPercent = 20
+private val LiquidLowColor = Color(0xFFFF5A5F)
+
+/** Fixed bubble spots as (x, depth below the surface, radius in dp) fractions; drawn static. */
+private val LiquidBubbles = listOf(
+    Triple(0.08f, 0.18f, 2.5f),
+    Triple(0.21f, 0.55f, 1.5f),
+    Triple(0.33f, 0.28f, 2f),
+    Triple(0.47f, 0.72f, 2.5f),
+    Triple(0.58f, 0.15f, 1.5f),
+    Triple(0.69f, 0.46f, 2f),
+    Triple(0.81f, 0.24f, 2.5f),
+    Triple(0.92f, 0.62f, 1.5f),
+)
+
+/**
+ * One charging animation loop. The wave and every rising bubble repeat a whole number of times per
+ * loop, so the loop restarts without a jump.
+ */
+private const val LiquidLoopMillis = 7200
+private const val LiquidWaveCycles = 3
+
+/** A carbonation bubble: x fraction, start offset in the loop, rises per loop, radius in dp. */
+private class RisingBubble(val x: Float, val offset: Float, val rises: Int, val radius: Float)
+
+private const val RisingBubbleCount = 24
+
+// A fixed seed scatters the bubbles the same way every time.
+private val RisingBubbles = Random(7).let { random ->
+    List(RisingBubbleCount) {
+        RisingBubble(
+            x = 0.03f + 0.94f * random.nextFloat(),
+            offset = random.nextFloat(),
+            rises = 4 + random.nextInt(4),
+            radius = 1f + 1.4f * random.nextFloat(),
+        )
+    }
+}
+
+internal fun isLowBattery(percent: Int, charging: Boolean): Boolean =
+    !charging && percent <= LowBatteryPercent
+
+/** The theme's accent as a liquid; red once the level is low. */
+@Composable
+private fun liquidColor(low: Boolean): Color {
+    val style = LocalWidgetStyle.current
+    return when (style.language) {
+        WidgetLanguage.NISHIKIGOI -> if (low) NISHIKIGOI_RED else NISHIKIGOI_BLUE
+        WidgetLanguage.KEYBOARD, WidgetLanguage.MATERIAL -> if (low) LiquidLowColor else LocalLauncherPalette.current.accent
+        WidgetLanguage.METRO, WidgetLanguage.GLASS -> if (low) LiquidLowColor else Color.White
+    }
+}
+
+/**
+ * Liquid opacity: white liquid on Metro and Glass stays lighter so white text keeps its contrast,
+ * and Classic's pale blue needs more body to show on ivory.
+ */
+@Composable
+private fun liquidAlpha(): Float = when (LocalWidgetStyle.current.language) {
+    WidgetLanguage.METRO, WidgetLanguage.GLASS -> 0.2f
+    WidgetLanguage.NISHIKIGOI -> 0.7f
+    else -> 0.3f
+}
+
+/**
+ * Fills [level] of the area from the bottom. A non-null [time] (0..1 through one charging loop)
+ * makes the surface a moving wave and the bubbles rise like carbonation.
+ */
+private fun DrawScope.drawLiquid(level: Float, color: Color, alpha: Float, time: Float?) {
+    if (level <= 0f || size.width <= 0f || size.height <= 0f) return
+    val surfaceY = size.height * (1f - level.coerceIn(0f, 1f))
+    val amplitude = if (time != null) 3.dp.toPx() else 0f
+    val phase = time?.let { (it * LiquidWaveCycles) % 1f }
+    val surface = Path().apply {
+        val steps = 32
+        for (step in 0..steps) {
+            val fraction = step / steps.toFloat()
+            val wave = if (phase == null) 0f else sin((fraction * 1.5f + phase) * 2f * PI.toFloat())
+            val x = size.width * fraction
+            val y = surfaceY + amplitude * wave
+            if (step == 0) moveTo(x, y) else lineTo(x, y)
+        }
+    }
+    val body = Path().apply {
+        addPath(surface)
+        lineTo(size.width, size.height)
+        lineTo(0f, size.height)
+        close()
+    }
+    drawPath(
+        body,
+        Brush.verticalGradient(
+            listOf(color.copy(alpha = alpha), color.copy(alpha = alpha * 0.5f)),
+            startY = surfaceY,
+            endY = size.height,
+        ),
+    )
+    val bubbleCeiling = surfaceY + amplitude + 2.dp.toPx()
+    if (time == null) {
+        LiquidBubbles.forEach { (x, depth, radius) ->
+            val radiusPx = radius.dp.toPx()
+            val y = surfaceY + (size.height - surfaceY) * depth
+            if (y - radiusPx > bubbleCeiling) {
+                drawCircle(
+                    color = color.copy(alpha = alpha * 1.6f),
+                    radius = radiusPx,
+                    center = Offset(size.width * x, y),
+                    style = Stroke(width = 1.dp.toPx()),
+                )
+            }
+        }
+    } else {
+        val wobble = 1.5.dp.toPx()
+        RisingBubbles.forEach { bubble ->
+            val progress = (time * bubble.rises + bubble.offset) % 1f
+            // Bubbles grow a little as they rise and fade in at the bottom and out at the top.
+            val radiusPx = bubble.radius.dp.toPx() * (0.7f + 0.3f * progress)
+            val y = size.height - progress * (size.height - bubbleCeiling)
+            val sway = sin((time * bubble.rises * 2 + bubble.offset) * 2f * PI.toFloat()) * wobble
+            val fade = minOf(1f, progress * 6f, (1f - progress) * 5f)
+            if (y - radiusPx > bubbleCeiling && fade > 0f) {
+                val center = Offset(size.width * bubble.x + sway, y)
+                drawCircle(color.copy(alpha = alpha * 0.8f * fade), radiusPx, center)
+                drawCircle(
+                    color = color.copy(alpha = minOf(1f, alpha * 2.4f) * fade),
+                    radius = radiusPx,
+                    center = center,
+                    style = Stroke(width = 1.dp.toPx()),
+                )
+            }
+        }
+    }
+    drawPath(surface, color.copy(alpha = alpha * 0.8f), style = Stroke(width = 6.dp.toPx()))
+    drawPath(surface, color.copy(alpha = 0.9f), style = Stroke(width = 1.5.dp.toPx()))
+}
+
+@Composable
+private fun DeviceBatteryWidget(battery: BatteryStatus, footprint: WidgetFootprint) {
+    val low = isLowBattery(battery.percent, battery.charging)
+    val color = liquidColor(low)
+    val alpha = liquidAlpha()
+    // Only the charging liquid moves; the transition stops with the composable or the charger.
+    val time = if (battery.charging && !LocalReduceMotion.current) {
+        rememberInfiniteTransition(label = "liquid").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(LiquidLoopMillis, easing = LinearEasing)),
+            label = "liquidTime",
+        )
+    } else {
+        null
+    }
+    val heroColor = if (low && LocalWidgetStyle.current.language != WidgetLanguage.METRO) color else FiiLDAInk
+    val showsDevices = footprint.wide
+    val permission = rememberGlancePermission(PeripheralBatteryPermission)
+    val devices = rememberPeripheralBatteries(enabled = showsDevices && permission.granted)
+    val chargeLabel = battery.chargeTimeRemainingMillis?.let { durationLabel(it) }
+    WidgetFrame(
+        widget = HomeWidget.DEVICE_BATTERY,
+        title = tr("バッテリー", "Battery"),
+        icon = if (battery.charging) Icons.Filled.Bolt else Icons.Filled.BatteryFull,
+        trailing = when {
+            !footprint.compact -> null
+            battery.charging -> chargeLabel?.let { tr("満充電まで$it", "Full in $it") } ?: tr("充電中", "Charging")
+            low -> tr("残りわずか", "Low")
+            else -> null
+        },
+        backdrop = { drawLiquid(battery.percent / 100f, color, alpha, time?.value) },
+    ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            val height = maxHeight
+            if (footprint.compact) {
+                Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    BatteryPercent(battery.percent, (height * 0.6f).asSp(), heroColor)
+                    if (showsDevices) {
+                        PeripheralBatteryRow(
+                            devices = devices,
+                            permission = permission,
+                            compact = true,
+                            modifier = Modifier.weight(1f).fillMaxHeight().padding(start = 12.dp),
+                        )
+                    }
+                }
+                return@BoxWithConstraints
+            }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(verticalAlignment = Alignment.Top) {
+                    BatteryPercent(battery.percent, (height * if (showsDevices) 0.3f else 0.36f).asSp(), heroColor)
+                    FillSpace()
+                    BatteryCharge(battery.charging, chargeLabel, low)
+                }
+                FillSpace()
+                if (showsDevices) {
+                    PeripheralBatteryRow(
+                        devices = devices,
+                        permission = permission,
+                        compact = false,
+                        modifier = Modifier.fillMaxWidth().height(height * 0.48f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatteryPercent(percent: Int, size: TextUnit, color: Color) {
+    Row(verticalAlignment = Alignment.Bottom) {
+        HeroText("$percent", size, color = color)
+        Text(
+            text = "%",
+            color = color,
+            fontSize = size * 0.4f,
+            modifier = Modifier.padding(start = 2.dp, bottom = 2.dp),
+        )
+    }
+}
+
+/** Charge state at the top right: the platform's time to full while charging, or the low warning. */
+@Composable
+private fun BatteryCharge(charging: Boolean, chargeLabel: String?, low: Boolean) {
+    val style = LocalWidgetStyle.current
+    when {
+        charging -> Column(horizontalAlignment = Alignment.End) {
+            SecondaryText(tr("充電中", "Charging"), color = style.current, size = 10.sp)
+            chargeLabel?.let {
+                SecondaryText(tr("満充電まで$it", "Full in $it"), color = FiiLDAInk, size = 12.sp)
+            }
+        }
+        // Red stays in the liquid and the large numerals; small red text is unreadable on
+        // Metro green and light surfaces.
+        low -> SecondaryText(tr("残りわずか", "Low"), color = FiiLDAInk, size = 10.sp)
+    }
+}
+
+/** Up to three connected devices, or the access request while the permission is missing. */
+@Composable
+private fun PeripheralBatteryRow(
+    devices: List<PeripheralBattery>,
+    permission: GlancePermissionState,
+    compact: Boolean,
+    modifier: Modifier,
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        when {
+            !permission.granted -> WidgetActionButton(
+                text = tr("周辺機器の残量を表示", "Show device batteries"),
+                onClick = permission.request,
+            )
+            devices.isEmpty() -> SecondaryText(tr("接続中の機器はありません", "No connected devices"), size = 10.sp)
+            else -> Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
+            ) {
+                devices.take(3).forEach { device ->
+                    PeripheralCell(device, compact, Modifier.weight(1f).fillMaxHeight())
+                }
+                // Keeps one or two cells at a third of the row instead of stretching them.
+                repeat(3 - devices.size.coerceAtMost(3)) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PeripheralCell(device: PeripheralBattery, compact: Boolean, modifier: Modifier) {
+    val style = LocalWidgetStyle.current
+    val color = liquidColor(low = device.percent <= LowBatteryPercent)
+    val alpha = liquidAlpha()
+    val shape = if (style.language == WidgetLanguage.METRO) RectangleShape else RoundedCornerShape(10.dp)
+    // An inner block hides the phone's liquid behind the cell; Glass keeps no opaque blocks.
+    val surface = when (style.language) {
+        WidgetLanguage.GLASS -> Color.Transparent
+        WidgetLanguage.METRO -> windows8BuiltInTileColor(HomeWidget.DEVICE_BATTERY.id)
+        else -> LocalLauncherPalette.current.surface
+    }
+    val icon = when (device.kind) {
+        PeripheralKind.AUDIO -> Icons.Filled.Headphones
+        PeripheralKind.WATCH -> Icons.Filled.Watch
+        PeripheralKind.COMPUTER -> Icons.Filled.Laptop
+        PeripheralKind.PHONE -> Icons.Filled.Smartphone
+        PeripheralKind.INPUT -> Icons.Filled.Keyboard
+        PeripheralKind.OTHER -> Icons.Filled.Bluetooth
+    }
+    val label = "${device.percent}%"
+    val content: @Composable () -> Unit = {
+        Icon(icon, contentDescription = null, tint = FiiLDAInk, modifier = Modifier.size(if (compact) 14.dp else 20.dp))
+        Text(
+            text = label,
+            color = FiiLDAInk,
+            fontSize = if (compact) 10.sp else 12.sp,
+            fontWeight = FontWeight.Medium,
+            style = TabularNumerals,
+            maxLines = 1,
+            modifier = Modifier.padding(start = if (compact) 3.dp else 0.dp, top = if (compact) 0.dp else 2.dp),
+        )
+    }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(surface)
+            .border(1.dp, LocalLauncherPalette.current.line, shape)
+            .drawBehind { drawLiquid(device.percent / 100f, color, alpha, time = null) }
+            .semantics(mergeDescendants = true) { contentDescription = "${device.name} $label" },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (compact) {
+            Row(verticalAlignment = Alignment.CenterVertically) { content() }
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { content() }
+        }
     }
 }
 

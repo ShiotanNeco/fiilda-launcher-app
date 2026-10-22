@@ -69,6 +69,7 @@ import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.AutoMode
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.DisplaySettings
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Extension
@@ -232,7 +233,6 @@ private fun HomePageTargetSelector(
     homePageCount: Int,
     homePageChangePending: Boolean,
     onAddHomePage: ((Int?) -> Unit) -> Unit,
-    onRemoveHomePage: (Int, (Int?) -> Unit) -> Unit,
     onHomePageSelected: (Int) -> Unit,
     label: String = tr("追加先", "Add to"),
     modifier: Modifier = Modifier,
@@ -243,25 +243,6 @@ private fun HomePageTargetSelector(
     val pageWidthPx = with(LocalDensity.current) { 104.dp.roundToPx() }
     LaunchedEffect(normalizedSelectedPage, homePageCount) {
         pageScrollState.animateScrollTo(normalizedSelectedPage * pageWidthPx)
-    }
-    var pageToRemove by remember { mutableStateOf<Int?>(null) }
-    pageToRemove?.let { removed ->
-        AlertDialog(
-            onDismissRequest = { pageToRemove = null },
-            title = { Text(tr("ホーム${removed + 1}を削除", "Delete Home ${removed + 1}")) },
-            text = { Text(tr("この画面のアプリやウィジェットはホーム${(removed - 1).coerceAtLeast(0) + 1}へ移動します。", "Apps and widgets on this page move to Home ${(removed - 1).coerceAtLeast(0) + 1}.")) },
-            confirmButton = {
-                TextButton(onClick = {
-                    pageToRemove = null
-                    onRemoveHomePage(removed) { result ->
-                        if (result != null) onHomePageSelected(
-                            homePageAfterRemoval(normalizedSelectedPage, removed, homePageCount - 1),
-                        )
-                    }
-                }) { Text(tr("削除", "Delete")) }
-            },
-            dismissButton = { TextButton(onClick = { pageToRemove = null }) { Text(tr("キャンセル", "Cancel")) } },
-        )
     }
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -279,16 +260,6 @@ private fun HomePageTargetSelector(
                 onClick = { onAddHomePage { added -> if (added != null) onHomePageSelected(added) } },
             ) {
                 Icon(Icons.Filled.Add, contentDescription = tr("ホーム画面を追加", "Add Home page"), tint = colors.ink)
-            }
-            IconButton(
-                enabled = homePageCount > 1 && !homePageChangePending,
-                onClick = { pageToRemove = normalizedSelectedPage },
-            ) {
-                Icon(
-                    Icons.Outlined.Delete,
-                    contentDescription = tr("ホーム${normalizedSelectedPage + 1}を削除", "Delete Home ${normalizedSelectedPage + 1}"),
-                    tint = if (homePageCount > 1) colors.destructive else colors.muted,
-                )
             }
         }
         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(pageScrollState)) {
@@ -591,7 +562,6 @@ private fun ActionGroupPageSelector(
     homePageCount: Int,
     homePageChangePending: Boolean,
     onAddHomePage: ((Int?) -> Unit) -> Unit,
-    onRemoveHomePage: (Int, (Int?) -> Unit) -> Unit,
     onHomePageSelected: (Int) -> Unit,
     label: String,
 ) {
@@ -600,11 +570,60 @@ private fun ActionGroupPageSelector(
         homePageCount = homePageCount,
         homePageChangePending = homePageChangePending,
         onAddHomePage = onAddHomePage,
-        onRemoveHomePage = onRemoveHomePage,
         onHomePageSelected = onHomePageSelected,
         label = label,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
     )
+}
+
+/**
+ * Deleting a Home page has its own named section at the end of a long-press menu, apart from the
+ * item's own actions, so it is not mistaken for removing the app or widget. It names the page
+ * picked in the menu's page selector.
+ */
+@Composable
+private fun ActionHomePageRemoval(
+    page: Int,
+    homePageCount: Int,
+    homePageChangePending: Boolean,
+    onRemoveHomePage: (Int, (Int?) -> Unit) -> Unit,
+    /** Called with the deleted page after the deletion is saved. */
+    onRemoved: (Int) -> Unit,
+) {
+    if (homePageCount <= 1) return
+    val normalizedPage = page.coerceIn(0, homePageCount - 1)
+    val destinationPage = (normalizedPage - 1).coerceAtLeast(0)
+    var confirming by remember { mutableStateOf(false) }
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text(tr("ホーム${normalizedPage + 1}のページを削除", "Delete the Home ${normalizedPage + 1} page")) },
+            text = { Text(tr("このページのアプリやウィジェットはホーム${destinationPage + 1}へ移動します。", "Apps and widgets on this page move to Home ${destinationPage + 1}.")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirming = false
+                    onRemoveHomePage(normalizedPage) { result ->
+                        if (result != null) onRemoved(normalizedPage)
+                    }
+                }) { Text(tr("削除", "Delete")) }
+            },
+            dismissButton = { TextButton(onClick = { confirming = false }) { Text(tr("キャンセル", "Cancel")) } },
+        )
+    }
+    ActionGroup {
+        Text(
+            text = tr("ホーム画面の管理", "Home page management"),
+            color = actionMenuColors().muted,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+        )
+        ActionRow(
+            text = tr("ホーム${normalizedPage + 1}のページを削除", "Delete the Home ${normalizedPage + 1} page"),
+            icon = Icons.Outlined.DeleteSweep,
+            destructive = true,
+            onClick = { if (!homePageChangePending) confirming = true },
+        )
+    }
 }
 
 @Composable
@@ -901,7 +920,6 @@ internal fun AppActionDialog(
                             homePageCount = homePageCount,
                             homePageChangePending = homePageChangePending,
                             onAddHomePage = onAddHomePage,
-                            onRemoveHomePage = onRemoveHomePage,
                             onHomePageSelected = { addTargetHomePage = it },
                             label = tr("追加先", "Add to"),
                         )
@@ -951,7 +969,6 @@ internal fun AppActionDialog(
                                 homePageCount = homePageCount,
                                 homePageChangePending = homePageChangePending,
                                 onAddHomePage = onAddHomePage,
-                                onRemoveHomePage = onRemoveHomePage,
                                 onHomePageSelected = { moveTargetHomePage = it },
                                 label = tr("移動先", "Move to"),
                             )
@@ -983,6 +1000,28 @@ internal fun AppActionDialog(
                             )
                         }
                     }
+                }
+                // The page picked above (where to add, or where to move) is the one offered here.
+                val selectedPage = if (isFavorite) {
+                    moveTargetHomePage.takeIf { currentHomePage != null }
+                } else {
+                    addTargetHomePage
+                }
+                selectedPage?.let { page ->
+                    ActionHomePageRemoval(
+                        page = page,
+                        homePageCount = homePageCount,
+                        homePageChangePending = homePageChangePending,
+                        onRemoveHomePage = onRemoveHomePage,
+                        onRemoved = { removed ->
+                            val remaining = homePageCount - 1
+                            if (isFavorite) {
+                                moveTargetHomePage = homePageAfterRemoval(moveTargetHomePage, removed, remaining)
+                            } else {
+                                addTargetHomePage = homePageAfterRemoval(addTargetHomePage, removed, remaining)
+                            }
+                        },
+                    )
                 }
             }
 
@@ -1095,7 +1134,6 @@ internal fun WidgetSelectorDialog(
     homePageCount: Int,
     homePageChangePending: Boolean,
     onAddHomePage: ((Int?) -> Unit) -> Unit,
-    onRemoveHomePage: (Int, (Int?) -> Unit) -> Unit,
     onHomePageSelected: (Int) -> Unit,
     onBuiltIn: (HomeWidget, Int) -> Unit,
     onExternal: (WidgetPickerProvider, Int) -> Unit,
@@ -1165,7 +1203,6 @@ internal fun WidgetSelectorDialog(
                 homePageCount = homePageCount,
                 homePageChangePending = homePageChangePending,
                 onAddHomePage = onAddHomePage,
-                onRemoveHomePage = onRemoveHomePage,
                 onHomePageSelected = { targetHomePage ->
                     val normalizedTarget = targetHomePage.coerceIn(0, homePageCount - 1)
                     pickerHomePage = normalizedTarget
@@ -1606,16 +1643,32 @@ internal fun WidgetActionDialog(
     includeAuto: Boolean,
     onEdit: (() -> Unit)? = null,
     availableSizes: List<WidgetSizeChoice> = FixedWidgetSizeChoices,
+    currentHomePage: Int?,
+    homePageCount: Int,
+    homePageChangePending: Boolean,
+    onAddHomePage: ((Int?) -> Unit) -> Unit,
+    onRemoveHomePage: (Int, (Int?) -> Unit) -> Unit,
+    onMove: (Int) -> Boolean,
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
     onSetSize: (WidgetSizeChoice) -> Boolean,
     onRemove: () -> Boolean,
 ) {
     var showSizes by remember { mutableStateOf(false) }
+    var moveTargetHomePage by rememberSaveable(label) {
+        mutableIntStateOf(currentHomePage?.let { (it + 1) % homePageCount } ?: 0)
+    }
+    LaunchedEffect(homePageCount) {
+        moveTargetHomePage = moveTargetHomePage.coerceIn(0, homePageCount - 1)
+    }
     ActionSheet(
-        onDismiss = onDismiss,
+        onDismiss = { if (!homePageChangePending) onDismiss() },
         scrollToTopKey = showSizes,
     ) {
+        if (homePageChangePending) {
+            Text(tr("ホーム画面を保存中…", "Saving Home…"), color = actionMenuColors().ink)
+            return@ActionSheet
+        }
         BackHandler(enabled = showSizes) {
             showSizes = false
         }
@@ -1658,12 +1711,41 @@ internal fun WidgetActionDialog(
                     onClick = { showSizes = true },
                 )
             }
+            if (currentHomePage != null) {
+                ActionGroup {
+                    ActionGroupPageSelector(
+                        selectedHomePage = moveTargetHomePage,
+                        homePageCount = homePageCount,
+                        homePageChangePending = homePageChangePending,
+                        onAddHomePage = onAddHomePage,
+                        onHomePageSelected = { moveTargetHomePage = it },
+                        label = tr("移動先", "Move to"),
+                    )
+                    ActionRow(
+                        text = tr("ホーム${moveTargetHomePage + 1}へ移動", "Move to Home ${moveTargetHomePage + 1}"),
+                        icon = Icons.AutoMirrored.Outlined.DriveFileMove,
+                        onClick = { if (onMove(moveTargetHomePage)) onDismiss() },
+                    )
+                }
+            }
             ActionGroup {
                 ActionRow(
                     text = tr("ホームから削除", "Remove from Home"),
                     icon = Icons.Outlined.RemoveCircleOutline,
                     destructive = true,
                     onClick = { if (onRemove()) onDismiss() },
+                )
+            }
+            if (currentHomePage != null) {
+                // Follows the page picked under Move to.
+                ActionHomePageRemoval(
+                    page = moveTargetHomePage,
+                    homePageCount = homePageCount,
+                    homePageChangePending = homePageChangePending,
+                    onRemoveHomePage = onRemoveHomePage,
+                    onRemoved = { removed ->
+                        moveTargetHomePage = homePageAfterRemoval(moveTargetHomePage, removed, homePageCount - 1)
+                    },
                 )
             }
         } else {

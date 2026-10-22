@@ -81,7 +81,6 @@ class HomeLayoutPersistenceIntegrationTest {
         val transfer = requireNotNull(
             computeHomeItemPageTransfer(
                 layout = original,
-                favoriteIds = listOf("direct", "other"),
                 id = "direct",
                 targetPage = 1,
             ),

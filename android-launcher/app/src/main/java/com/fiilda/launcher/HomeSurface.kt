@@ -70,6 +70,10 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -160,6 +164,7 @@ internal fun HomeSurface(
     onCommitWideOrder: (List<String>) -> Unit,
     onCancelWideOrder: () -> Unit,
     onCanvasHomePositionChanged: (StartCanvasScrollPosition) -> Unit,
+    onSwipePastLastPage: () -> Unit,
 ) {
     val context = LocalContext.current
     val mediaState = rememberMediaSessionState(context, lifecycleRefreshToken)
@@ -383,11 +388,18 @@ internal fun HomeSurface(
             }
         } else {
             key("home-narrow-pager") {
+                val currentOnSwipePastLastPage = rememberUpdatedState(onSwipePastLastPage)
+                val swipeDistancePx = with(LocalDensity.current) { SurfaceSwipeDistance.toPx() }
+                val pastLastPageSwipe = remember(pagerState, swipeDistancePx) {
+                    PastLastPageSwipe(pagerState, swipeDistancePx) { currentOnSwipePastLastPage.value() }
+                }
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .then(pastLastPageSwipe.fingerObserver)
+                        .nestedScroll(pastLastPageSwipe)
                         // HorizontalPager clips its pages horizontally at its own bounds. Extend
                         // it through the side margin so floating tiles are cut at the screen edge,
                         // and give each page the margin back as padding below.
@@ -2505,3 +2517,48 @@ internal val LocalHomeBoardVisible = androidx.compose.runtime.compositionLocalOf
 /** Matches the lifted tile's own 0.94 layer alpha in the navigation glass scene. */
 private val DraggedGlassAlpha: () -> Float = { 0.94f }
 
+/**
+ * Opens the app list when a leftward drag continues past the last Home page. Leftover scroll the
+ * pager cannot use marks where the pull started; the finger's own position then decides, because
+ * the edge stretch consumes a drag back to the right before any scroll callback sees it.
+ */
+private class PastLastPageSwipe(
+    private val pagerState: PagerState,
+    private val thresholdPx: Float,
+    private val onSwipe: () -> Unit,
+) : NestedScrollConnection {
+    private var fingerX = 0f
+    private var pullStartX: Float? = null
+
+    /** Watches the finger without consuming it, so pager and tile gestures are unaffected. */
+    val fingerObserver = Modifier.pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            fingerX = down.position.x
+            pullStartX = null
+            while (true) {
+                val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                    .firstOrNull { it.id == down.id } ?: break
+                fingerX = change.position.x
+                if (!change.pressed) break
+            }
+        }
+    }
+
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+        if (source != NestedScrollSource.UserInput) return Offset.Zero
+        if (pagerState.canScrollForward) {
+            pullStartX = null
+        } else if (available.x < 0f && pullStartX == null) {
+            pullStartX = fingerX
+        }
+        return Offset.Zero
+    }
+
+    override suspend fun onPreFling(available: Velocity): Velocity {
+        val start = pullStartX
+        pullStartX = null
+        if (start != null && !pagerState.canScrollForward && start - fingerX >= thresholdPx) onSwipe()
+        return Velocity.Zero
+    }
+}

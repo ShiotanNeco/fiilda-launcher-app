@@ -393,8 +393,8 @@ internal fun FiiLDALauncher(
         }
         page = destination.page
         if (withHaptic) {
-            // This is a commit cue for a tab tap only. Swipes and recompositions never call this
-            // path, so they cannot duplicate the feedback while the pager settles.
+            // A commit cue for a tab tap or a finished Home/app list swipe. Page swipes and
+            // recompositions never call this path, so the pager settling cannot repeat it.
             launcherView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         }
     }
@@ -1051,59 +1051,59 @@ internal fun FiiLDALauncher(
             }
         }
     }
+    // An action sheet can outlive a package, favorite, or widget refresh. A stale item is never
+    // recreated or written; the sheet stays open so the user can dismiss it explicitly.
+    val moveHomeItem: (String, Int, String) -> Boolean = { id, requestedTargetHomePage, staleMessage ->
+        val transfer = computeHomeItemPageTransfer(
+            layout = currentHomeLayout(),
+            id = id,
+            targetPage = requestedTargetHomePage,
+        )
+        if (transfer == null) {
+            Toast.makeText(context, staleMessage, Toast.LENGTH_SHORT).show()
+            false
+        } else if (!transfer.changed) {
+            Toast.makeText(
+                context,
+                tr("すでにホーム${transfer.sourcePage + 1}にあります", "Already on Home ${transfer.sourcePage + 1}"),
+                Toast.LENGTH_SHORT,
+            ).show()
+            true
+        } else if (persistHomeLayoutTransaction(
+                context = context,
+                layout = transfer.layout,
+                folders = homeFolders,
+            )
+        ) {
+            // The v4 layout and both compatibility mirrors are visible to Compose only after
+            // the single persistence transaction succeeds.
+            applyCommittedHomeLayout(transfer.layout)
+            Toast.makeText(
+                context,
+                tr("ホーム${transfer.targetPage + 1}へ移動しました", "Moved to Home ${transfer.targetPage + 1}"),
+                Toast.LENGTH_SHORT,
+            ).show()
+            true
+        } else {
+            Toast.makeText(context, tr("ホームの移動を保存できませんでした", "Couldn't save the move"), Toast.LENGTH_SHORT).show()
+            false
+        }
+    }
     val moveFavorite: (LaunchableApp, Int) -> Boolean = { app, requestedTargetHomePage ->
         val id = favoriteId(app)
-        val currentLayout = currentHomeLayout()
+        val staleMessage = tr("このアプリは移動できなくなりました", "This app can no longer be moved")
         val installedAppIds = installedApps.asSequence().map(::favoriteId).toSet()
-        if (!isHomeItemPageTransferEligible(
-                layout = currentLayout,
+        if (isHomeItemPageTransferEligible(
+                layout = currentHomeLayout(),
                 favoriteIds = favoriteIds,
                 installedAppIds = installedAppIds,
                 id = id,
             )
         ) {
-            // The action sheet can outlive a package/favorite refresh. Do not recreate or write a
-            // stale item; keep the sheet open so the user can dismiss it explicitly.
-            Toast.makeText(context, tr("このアプリは移動できなくなりました", "This app can no longer be moved"), Toast.LENGTH_SHORT).show()
-            false
+            moveHomeItem(id, requestedTargetHomePage, staleMessage)
         } else {
-            val transfer = computeHomeItemPageTransfer(
-                layout = currentLayout,
-                favoriteIds = favoriteIds,
-                id = id,
-                targetPage = requestedTargetHomePage,
-            )
-            if (transfer == null) {
-                // The eligibility snapshot above should make this impossible, but retain the
-                // failure guard if another state transition races this callback.
-                Toast.makeText(context, tr("このアプリは移動できなくなりました", "This app can no longer be moved"), Toast.LENGTH_SHORT).show()
-                false
-            } else if (!transfer.changed) {
-                Toast.makeText(
-                    context,
-                    tr("このアプリはすでにホーム${transfer.sourcePage + 1}にあります", "This app is already on Home ${transfer.sourcePage + 1}"),
-                    Toast.LENGTH_SHORT,
-                ).show()
-                true
-            } else if (persistHomeLayoutTransaction(
-                    context = context,
-                    layout = transfer.layout,
-                    folders = homeFolders,
-                )
-            ) {
-                // The v4 layout and both compatibility mirrors are visible to Compose only after
-                // the single persistence transaction succeeds.
-                applyCommittedHomeLayout(transfer.layout)
-                Toast.makeText(
-                    context,
-                    tr("ホーム${transfer.targetPage + 1}へ移動しました", "Moved to Home ${transfer.targetPage + 1}"),
-                    Toast.LENGTH_SHORT,
-                ).show()
-                true
-            } else {
-                Toast.makeText(context, tr("ホームの移動を保存できませんでした", "Couldn't save the move"), Toast.LENGTH_SHORT).show()
-                false
-            }
+            Toast.makeText(context, staleMessage, Toast.LENGTH_SHORT).show()
+            false
         }
     }
     val removeFavorite: (LaunchableApp) -> Boolean = { app ->
@@ -2429,6 +2429,13 @@ internal fun FiiLDALauncher(
                                     onCanvasHomePositionChanged = { position ->
                                         wideCanvasLastHomePosition = position
                                     },
+                                    onSwipePastLastPage = {
+                                        navigateToDestination(
+                                            destination = LauncherDestination.DRAWER,
+                                            withHaptic = true,
+                                            presentation = homePresentation,
+                                        )
+                                    },
                                     )
                                     }
                                     }
@@ -2522,6 +2529,17 @@ internal fun FiiLDALauncher(
                                 wideRevealKey = wideDrawerRevealKey,
                                 wideExitKey = wideDrawerExitKey,
                                 onWideExitFinished = { wideDrawerExiting = false },
+                                onSwipeToHome = if (homePresentation == LauncherHomePresentation.PAGER) {
+                                    {
+                                        navigateToDestination(
+                                            destination = launcherHomeDestination(selectedHomePage),
+                                            withHaptic = true,
+                                            presentation = homePresentation,
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
                             )
                             }
                         }
@@ -2765,6 +2783,9 @@ internal fun FiiLDALauncher(
             is HomeItem.PinnedShortcut -> null
             is HomeItem.Folder -> null
         }
+        val currentActionWidgetLayoutPage = currentHomeLayout()
+            .takeIf { item.id in it.allIds }
+            ?.pageOf(item.id)
         if (currentSize != null) {
             WidgetActionDialog(
                 label = when (item) {
@@ -2800,6 +2821,18 @@ internal fun FiiLDALauncher(
                     }
                     is HomeItem.WebLink -> PhotoWidgetSizeChoices
                     else -> FixedWidgetSizeChoices
+                },
+                currentHomePage = currentActionWidgetLayoutPage,
+                homePageCount = homePages.count,
+                homePageChangePending = homePageChangePending,
+                onAddHomePage = { done -> changeHomePages(onFinished = done) },
+                onRemoveHomePage = { removed, done -> changeHomePages(removed, done) },
+                onMove = { targetHomePage ->
+                    moveHomeItem(
+                        item.id,
+                        targetHomePage,
+                        tr("このウィジェットは移動できなくなりました", "This widget can no longer be moved"),
+                    )
                 },
                 onDismiss = { actionWidget = null },
                 onOpenSettings = {
@@ -2939,7 +2972,6 @@ internal fun FiiLDALauncher(
             homePageCount = homePages.count,
             homePageChangePending = homePageChangePending,
             onAddHomePage = { done -> changeHomePages(onFinished = done) },
-            onRemoveHomePage = { removed, done -> changeHomePages(removed, done) },
             onHomePageSelected = { targetHomePage ->
                 widgetPickerHomePage = targetHomePage.coerceIn(0, homePages.count - 1)
             },

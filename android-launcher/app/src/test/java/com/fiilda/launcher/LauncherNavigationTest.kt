@@ -604,4 +604,36 @@ class LauncherNavigationTest {
         assertEquals(1f, wideSwitcherHouseProgress(1f), 0f)
         assertTrue(wideSwitcherLogoAssembly(0.5f) > 0f && wideSwitcherHouseProgress(0.5f) > 0f)
     }
+
+    @Test
+    fun surfaceSwipeSwitchesOnlyAfterEnoughTravelInOneGesture() {
+        val tracker = SurfaceSwipeTracker(thresholdPx = 100f)
+
+        tracker.onDrag(60f)
+        tracker.onDrag(30f)
+        assertFalse(tracker.release())
+
+        tracker.onDrag(60f)
+        tracker.onDrag(50f)
+        assertTrue(tracker.release())
+        // Each release starts the next gesture from zero.
+        assertFalse(tracker.release())
+    }
+
+    @Test
+    fun surfaceSwipeThatTurnsBackDoesNotSwitch() {
+        val tracker = SurfaceSwipeTracker(thresholdPx = 100f)
+
+        tracker.onDrag(-80f)
+        tracker.onDrag(90f)
+        assertFalse(tracker.release())
+
+        tracker.onDrag(120f)
+        tracker.onDrag(-40f)
+        assertFalse(tracker.release())
+
+        tracker.onDrag(150f)
+        tracker.reset()
+        assertFalse(tracker.release())
+    }
 }

@@ -36,6 +36,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Cloud
@@ -63,6 +64,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -93,6 +96,7 @@ internal fun homeWidgetIcon(widget: HomeWidget): ImageVector = when (widget) {
     HomeWidget.AGENDA -> Icons.AutoMirrored.Filled.EventNote
     HomeWidget.CALENDAR -> Icons.Filled.CalendarMonth
     HomeWidget.BATTERY -> Icons.Filled.BatteryStd
+    HomeWidget.DEVICE_BATTERY -> Icons.Filled.BatteryChargingFull
     HomeWidget.REMINDER -> Icons.Filled.NotificationsNone
     HomeWidget.MEDIA -> Icons.Filled.PlayArrow
     HomeWidget.FORECAST -> Icons.Filled.WbSunny
@@ -410,6 +414,8 @@ internal fun FiiLDATile(
     backgroundless: Boolean = false,
     /** Replaces the Windows 8 built-in tile color, e.g. the media tile's artwork color. */
     metroSurfaceColor: Color? = null,
+    /** Drawn edge to edge over the tile surface and under the content, clipped to the tile. */
+    backdrop: (DrawScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val palette = LocalLauncherPalette.current
@@ -434,6 +440,7 @@ internal fun FiiLDATile(
                     )
                 }
             }
+            .then(if (backdrop != null) Modifier.clip(LauncherTileShape).drawBehind(backdrop) else Modifier)
             .padding(10.dp),
     ) {
         // Capture only the sharp widget foreground for the floating navigation glass. Keeping the

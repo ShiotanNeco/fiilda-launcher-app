@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
+import androidx.compose.ui.geometry.Offset
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
@@ -249,6 +250,114 @@ class GlassWallpaperTest {
         assertSame(previous, controller.state.bitmap)
         assertTrue(controller.state.hasWallpaper)
         assertEquals("読み込み失敗", controller.state.errorMessage)
+    }
+
+    @Test
+    fun cropSourceRectCoversViewAndClampsToImageEdges() {
+        // A 400x200 image in a 100x200 portrait view: cover scale 1 shows a 100x200 slice.
+        val centered = glassWallpaperSourceRect(400, 200, 100f, 200f, GlassWallpaperCrop())
+        assertEquals(150f, centered.left, 0.001f)
+        assertEquals(0f, centered.top, 0.001f)
+        assertEquals(100f, centered.width, 0.001f)
+        assertEquals(200f, centered.height, 0.001f)
+
+        val pastRightEdge = glassWallpaperSourceRect(
+            400, 200, 100f, 200f, GlassWallpaperCrop(centerX = 1f),
+        )
+        assertEquals(300f, pastRightEdge.left, 0.001f)
+
+        val zoomed = glassWallpaperSourceRect(
+            400, 200, 100f, 200f, GlassWallpaperCrop(zoom = 2f),
+        )
+        assertEquals(50f, zoomed.width, 0.001f)
+        assertEquals(100f, zoomed.height, 0.001f)
+        assertEquals(175f, zoomed.left, 0.001f)
+        assertEquals(50f, zoomed.top, 0.001f)
+    }
+
+    @Test
+    fun cropGesturesKeepTheFocusPointAndDoNotAccumulatePastEdges() {
+        val start = GlassWallpaperCrop()
+        // Pinch 2x around the view's top-left corner: image point (150, 0) stays there.
+        val zoomed = start.transformed(400, 200, 100f, 200f, Offset.Zero, Offset.Zero, 2f)
+        val zoomedRect = glassWallpaperSourceRect(400, 200, 100f, 200f, zoomed)
+        assertEquals(2f, zoomed.zoom, 0.001f)
+        assertEquals(150f, zoomedRect.left, 0.001f)
+        assertEquals(0f, zoomedRect.top, 0.001f)
+
+        // Dragging far right reaches the left edge; dragging back moves immediately.
+        val atEdge = start.transformed(
+            400, 200, 100f, 200f, Offset(5000f, 100f), Offset(5000f, 0f), 1f,
+        )
+        assertEquals(0f, glassWallpaperSourceRect(400, 200, 100f, 200f, atEdge).left, 0.001f)
+        val back = atEdge.transformed(
+            400, 200, 100f, 200f, Offset(50f, 100f), Offset(-10f, 0f), 1f,
+        )
+        assertEquals(10f, glassWallpaperSourceRect(400, 200, 100f, 200f, back).left, 0.001f)
+
+        val clampedZoom = start.transformed(400, 200, 100f, 200f, Offset.Zero, Offset.Zero, 0.2f)
+        assertEquals(1f, clampedZoom.zoom, 0.001f)
+    }
+
+    @Test
+    fun cropPreferencesRoundTripAndNormalizeInvalidValues() {
+        val preferences = GlassThemePreferences(context)
+        assertEquals(GlassWallpaperCrop(), preferences.readCrop())
+        assertTrue(preferences.saveCrop(GlassWallpaperCrop(2.5f, 0.2f, 0.8f)))
+        assertEquals(GlassWallpaperCrop(2.5f, 0.2f, 0.8f), GlassThemePreferences(context).readCrop())
+
+        context.getSharedPreferences(GlassThemePreferencesName, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(GlassWallpaperCropZoomPreferenceKey, 40f)
+            .putFloat(GlassWallpaperCropCenterXPreferenceKey, Float.NaN)
+            .putString(GlassWallpaperCropCenterYPreferenceKey, "corrupt")
+            .commit()
+        assertEquals(
+            GlassWallpaperCrop(GlassWallpaperMaxCropZoom, 0.5f, 0.5f),
+            GlassThemePreferences(context).readCrop(),
+        )
+    }
+
+    @Test
+    fun importStartsCenteredAndOpensEditorWhileResetClearsCrop() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val previous = Bitmap.createBitmap(4, 2, Bitmap.Config.ARGB_8888)
+        val imported = Bitmap.createBitmap(2, 4, Bitmap.Config.ARGB_8888)
+        val preferences = GlassThemePreferences(context)
+        assertTrue(preferences.saveCrop(GlassWallpaperCrop(3f, 0.1f, 0.9f)))
+        val store = FakeGlassWallpaperStore(
+            loadResult = GlassWallpaperLoadResult(bitmap = previous),
+            importResult = GlassWallpaperImportResult(bitmap = imported),
+        )
+        val controller = GlassWallpaperController(
+            store = store,
+            preferences = preferences,
+            scope = this,
+            ioDispatcher = dispatcher,
+            mainDispatcher = dispatcher,
+        )
+
+        controller.start()
+        advanceUntilIdle()
+        assertEquals(GlassWallpaperCrop(3f, 0.1f, 0.9f), controller.state.crop)
+        assertFalse(controller.state.isCropEditorOpen)
+
+        controller.importWallpaper(Uri.parse("content://test/new"))
+        advanceUntilIdle()
+        assertEquals(GlassWallpaperCrop(), controller.state.crop)
+        assertEquals(GlassWallpaperCrop(), GlassThemePreferences(context).readCrop())
+        assertTrue(controller.state.isCropEditorOpen)
+
+        assertTrue(controller.setCrop(GlassWallpaperCrop(2f, 0.3f, 0.4f)))
+        assertFalse(controller.state.isCropEditorOpen)
+        assertEquals(GlassWallpaperCrop(2f, 0.3f, 0.4f), GlassThemePreferences(context).readCrop())
+
+        controller.resetWallpaper()
+        advanceUntilIdle()
+        assertEquals(GlassWallpaperCrop(), controller.state.crop)
+        assertEquals(GlassWallpaperCrop(), GlassThemePreferences(context).readCrop())
+        controller.openCropEditor()
+        assertFalse(controller.state.isCropEditorOpen)
     }
 
     @Test
